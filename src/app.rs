@@ -1,0 +1,543 @@
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+use std::time::Instant;
+
+use eframe::egui::{self, Color32, ColorImage, RichText, TextureHandle, TextureOptions};
+use image::RgbaImage;
+
+use crate::puzzle::drawing::SampleImageType;
+use crate::puzzle::{EasingCurve, PuzzleCategory, PuzzleKind, PuzzleSimulation, TimingConfig};
+use crate::video::{check_ffmpeg_available, export_video, ExportJobConfig, ExportProgress, VideoFormat};
+
+pub struct VideoSolverApp {
+    // Current source image
+    source_image: RgbaImage,
+    source_name: String,
+    sample_type: SampleImageType,
+
+    // Simulation
+    selected_kind: PuzzleKind,
+    category_filter: Option<PuzzleCategory>,
+    current_sim: Option<Box<dyn PuzzleSimulation>>,
+
+    // Timing & rate configuration
+    timing: TimingConfig,
+
+    // Playback state
+    playback_time: f32,
+    is_playing: bool,
+    playback_speed: f32,
+    last_frame_instant: Instant,
+
+    // Preview texture
+    preview_texture: Option<TextureHandle>,
+    last_rendered_progress: f32,
+
+    // Export state
+    ffmpeg_available: bool,
+    active_export: Option<(ExportProgress, std::thread::JoinHandle<anyhow::Result<()>>)>,
+    export_message: Option<(String, bool)>, // (message, is_error)
+}
+
+impl VideoSolverApp {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Dark theme default
+        cc.egui_ctx.set_visuals(egui::Visuals::dark());
+
+        let sample = SampleImageType::VibrantMandala;
+        let img = sample.generate(600, 600);
+        let ffmpeg_available = check_ffmpeg_available();
+
+        let mut app = Self {
+            source_image: img,
+            source_name: sample.name().to_string(),
+            sample_type: sample,
+            selected_kind: PuzzleKind::JigsawClassic,
+            category_filter: None,
+            current_sim: None,
+            timing: TimingConfig::default(),
+            playback_time: 0.0,
+            is_playing: true,
+            playback_speed: 1.0,
+            last_frame_instant: Instant::now(),
+            preview_texture: None,
+            last_rendered_progress: -1.0,
+            ffmpeg_available,
+            active_export: None,
+            export_message: None,
+        };
+
+        app.rebuild_simulation();
+        app
+    }
+
+    fn rebuild_simulation(&mut self) {
+        let sim = self.selected_kind.create_simulation(
+            &self.source_image,
+            self.timing.complexity,
+            self.timing.seed,
+        );
+        self.current_sim = Some(sim);
+        self.last_rendered_progress = -1.0;
+    }
+
+    fn set_new_image(&mut self, img: RgbaImage, name: String) {
+        self.source_image = img;
+        self.source_name = name;
+        self.rebuild_simulation();
+    }
+
+    fn update_preview_texture(&mut self, ctx: &egui::Context, progress: f32) {
+        // Avoid re-rendering if progress hasn't noticeably changed
+        if (progress - self.last_rendered_progress).abs() < 0.0005 && self.preview_texture.is_some() {
+            return;
+        }
+
+        if let Some(sim) = &self.current_sim {
+            let mut out = RgbaImage::new(self.source_image.width(), self.source_image.height());
+            sim.render_frame(progress, &mut out);
+
+            let color_img = ColorImage::from_rgba_unmultiplied(
+                [out.width() as usize, out.height() as usize],
+                out.as_raw(),
+            );
+
+            match &mut self.preview_texture {
+                Some(handle) => handle.set(color_img, TextureOptions::LINEAR),
+                None => {
+                    self.preview_texture = Some(ctx.load_texture("puzzle_preview", color_img, TextureOptions::LINEAR));
+                }
+            }
+            self.last_rendered_progress = progress;
+        }
+    }
+
+    fn start_export(&mut self, path: PathBuf, format: VideoFormat) {
+        let config = ExportJobConfig {
+            output_path: path.clone(),
+            format,
+            width: self.source_image.width(),
+            height: self.source_image.height(),
+            timing: self.timing.clone(),
+            puzzle_kind: self.selected_kind,
+        };
+
+        let progress = ExportProgress::new(self.timing.total_frames());
+        let progress_clone = progress.clone();
+        let img = self.source_image.clone();
+
+        let handle = std::thread::spawn(move || {
+            export_video(&img, &config, progress_clone)
+        });
+
+        self.active_export = Some((progress, handle));
+        self.export_message = Some((format!("Exporting to {}...", path.display()), false));
+    }
+
+    fn start_batch_export(&mut self, folder: PathBuf) {
+        let kinds = PuzzleKind::ALL;
+        let timing = self.timing.clone();
+        let frames_per_puzzle = timing.total_frames();
+        let img = self.source_image.clone();
+
+        let total_frames = frames_per_puzzle * kinds.len() as u32;
+        let progress = ExportProgress::new(total_frames);
+        let progress_clone = progress.clone();
+        let folder_clone = folder.clone();
+
+        let handle = std::thread::spawn(move || {
+            for (idx, kind) in kinds.iter().enumerate() {
+                if progress_clone.is_cancelled.load(Ordering::Relaxed) {
+                    break;
+                }
+                let clean_name = kind.name().replace(['.', ' ', '/', '&'], "_");
+                let out_file = folder_clone.join(format!("{}.mp4", clean_name));
+
+                let config = ExportJobConfig {
+                    output_path: out_file,
+                    format: VideoFormat::Mp4H264,
+                    width: img.width(),
+                    height: img.height(),
+                    timing: timing.clone(),
+                    puzzle_kind: *kind,
+                };
+
+                let sub_progress = ExportProgress::new(frames_per_puzzle);
+                let sub_clone = sub_progress.clone();
+                let parent_prog = progress_clone.clone();
+
+                // Sub-worker updater thread
+                let is_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+                let is_running_clone = is_running.clone();
+                let sub_watcher = std::thread::spawn(move || {
+                    while is_running_clone.load(Ordering::Relaxed) {
+                        let cur_sub = sub_clone.current_frame.load(Ordering::Relaxed);
+                        let global_f = (idx as u32 * frames_per_puzzle) + cur_sub;
+                        parent_prog.current_frame.store(global_f, Ordering::Relaxed);
+                        std::thread::sleep(std::time::Duration::from_millis(30));
+                    }
+                });
+
+                let res = export_video(&img, &config, sub_progress);
+                is_running.store(false, Ordering::Relaxed);
+                let _ = sub_watcher.join();
+
+                if let Err(e) = res {
+                    return Err(e);
+                }
+            }
+            progress_clone.is_done.store(true, Ordering::Relaxed);
+            Ok(())
+        });
+
+        self.active_export = Some((progress, handle));
+        self.export_message = Some((format!("Batch exporting all 22 puzzles to {}...", folder.display()), false));
+    }
+}
+
+impl eframe::App for VideoSolverApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let now = Instant::now();
+        let dt = (now - self.last_frame_instant).as_secs_f32();
+        self.last_frame_instant = now;
+
+        // Check active export status
+        if let Some((_progress, handle)) = &mut self.active_export {
+            if handle.is_finished() {
+                // Take and inspect result
+                let (_, h) = self.active_export.take().unwrap();
+                match h.join() {
+                    Ok(Ok(())) => {
+                        self.export_message = Some(("Export completed successfully!".to_string(), false));
+                    }
+                    Ok(Err(e)) => {
+                        self.export_message = Some((format!("Export error: {}", e), true));
+                    }
+                    Err(_) => {
+                        self.export_message = Some(("Export thread panicked".to_string(), true));
+                    }
+                }
+            }
+        }
+
+        // Advance playback if playing
+        if self.is_playing && self.active_export.is_none() {
+            self.playback_time += dt * self.playback_speed;
+            if self.playback_time > self.timing.total_duration_sec {
+                self.playback_time = 0.0; // Loop
+            }
+            ctx.request_repaint();
+        }
+
+        let current_progress = self.timing.progress_at_time(self.playback_time);
+        self.update_preview_texture(ctx, current_progress);
+
+        // Top Header
+        egui::TopBottomPanel::top("header_panel").show(ctx, |ui| {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.heading(RichText::new("🎬 Video Solver Studio").strong().color(Color32::from_rgb(90, 180, 255)));
+                ui.label(RichText::new("• 22 Algorithmic & Spatial Image Puzzles").italics());
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if self.ffmpeg_available {
+                        ui.label(RichText::new("✓ FFmpeg Ready (MP4 H.264)").color(Color32::from_rgb(100, 220, 120)));
+                    } else {
+                        ui.label(RichText::new("⚠ FFmpeg Not Found (GIF fallback)").color(Color32::from_rgb(255, 180, 70)));
+                    }
+                });
+            });
+            ui.add_space(4.0);
+        });
+
+        // Left Side Controls
+        egui::SidePanel::left("controls_panel")
+            .resizable(true)
+            .default_width(360.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.add_space(8.0);
+
+                    // SECTION 1: Image Source
+                    ui.group(|ui| {
+                        ui.heading("🖼 Image Source");
+                        ui.horizontal(|ui| {
+                            if ui.button("📂 Load Image...").clicked() {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("Images", &["png", "jpg", "jpeg", "webp", "bmp"])
+                                    .pick_file()
+                                {
+                                    if let Ok(dyn_img) = image::open(&path) {
+                                        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                        self.set_new_image(dyn_img.to_rgba8(), name);
+                                    }
+                                }
+                            }
+
+                            egui::ComboBox::from_label("")
+                                .selected_text(self.sample_type.name())
+                                .show_ui(ui, |ui| {
+                                    for sample in SampleImageType::all() {
+                                        if ui.selectable_value(&mut self.sample_type, *sample, sample.name()).clicked() {
+                                            let img = self.sample_type.generate(600, 600);
+                                            self.set_new_image(img, sample.name().to_string());
+                                        }
+                                    }
+                                });
+                        });
+
+                        ui.small(format!("Active: {} ({}x{})", self.source_name, self.source_image.width(), self.source_image.height()));
+                    });
+
+                    ui.add_space(8.0);
+
+                    // SECTION 2: Puzzle Type & Configuration
+                    ui.group(|ui| {
+                        ui.heading("🧩 Puzzle Selector (22 Types)");
+
+                        // Category filter buttons
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.selectable_label(self.category_filter.is_none(), "All (22)").clicked() {
+                                self.category_filter = None;
+                            }
+                            for cat in PuzzleCategory::all() {
+                                if ui.selectable_label(self.category_filter == Some(*cat), cat.name()).clicked() {
+                                    self.category_filter = Some(*cat);
+                                }
+                            }
+                        });
+
+                        ui.add_space(4.0);
+
+                        // Dropdown of matching puzzles
+                        egui::ComboBox::from_id_salt("puzzle_picker")
+                            .selected_text(self.selected_kind.name())
+                            .width(320.0)
+                            .show_ui(ui, |ui| {
+                                for kind in PuzzleKind::ALL {
+                                    if let Some(cat) = self.category_filter {
+                                        if kind.category() != cat { continue; }
+                                    }
+                                    if ui.selectable_value(&mut self.selected_kind, kind, kind.name()).clicked() {
+                                        self.rebuild_simulation();
+                                    }
+                                }
+                            });
+
+                        ui.label(RichText::new(self.selected_kind.description()).small().italics());
+
+                        ui.add_space(6.0);
+
+                        // Complexity Slider
+                        ui.horizontal(|ui| {
+                            ui.label("Complexity:");
+                            if ui.add(egui::Slider::new(&mut self.timing.complexity, 1..=10)).changed() {
+                                self.rebuild_simulation();
+                            }
+                        });
+
+                        // Seed & Randomize
+                        ui.horizontal(|ui| {
+                            ui.label("Seed:");
+                            if ui.add(egui::DragValue::new(&mut self.timing.seed)).changed() {
+                                self.rebuild_simulation();
+                            }
+                            if ui.button("🎲 Random").clicked() {
+                                self.timing.seed = rand::random();
+                                self.rebuild_simulation();
+                            }
+                        });
+                    });
+
+                    ui.add_space(8.0);
+
+                    // SECTION 3: Video Duration & Solve Rate Controller
+                    ui.group(|ui| {
+                        ui.heading("⏱ Duration & Solve Rate");
+
+                        ui.horizontal(|ui| {
+                            ui.label("Video Length:");
+                            ui.add(egui::Slider::new(&mut self.timing.total_duration_sec, 0.5..=60.0).suffix("s"));
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Solved Hold:");
+                            ui.add(egui::Slider::new(&mut self.timing.hold_duration_sec, 0.0..=3.0).suffix("s"));
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("FPS:");
+                            ui.selectable_value(&mut self.timing.fps, 30, "30 FPS");
+                            ui.selectable_value(&mut self.timing.fps, 60, "60 FPS");
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Easing:");
+                            egui::ComboBox::from_id_salt("easing_combo")
+                                .selected_text(self.timing.easing.name())
+                                .show_ui(ui, |ui| {
+                                    for curve in EasingCurve::all() {
+                                        ui.selectable_value(&mut self.timing.easing, *curve, curve.name());
+                                    }
+                                });
+                        });
+
+                        ui.separator();
+
+                        // Live Rate Readout
+                        let total_steps = self.current_sim.as_ref().map(|s| s.total_steps()).unwrap_or(1);
+                        let rate = self.timing.solve_rate_steps_per_sec(total_steps);
+                        let total_frames = self.timing.total_frames();
+
+                        ui.label(RichText::new(format!("⚡ Rate: {:.1} moves / second", rate)).strong().color(Color32::from_rgb(255, 215, 80)));
+                        ui.label(format!("• Active Solve Window: {:.2}s (Hold: {:.2}s)", self.timing.solve_duration_sec(), self.timing.hold_duration_sec));
+                        ui.label(format!("• Total Discrete Steps: {}", total_steps));
+                        ui.label(format!("• Total Frames: {} frames @ {} fps", total_frames, self.timing.fps));
+                    });
+
+                    ui.add_space(8.0);
+
+                    // SECTION 4: Video Export
+                    ui.group(|ui| {
+                        ui.heading("💾 Video Export");
+
+                        let is_exporting = self.active_export.is_some();
+
+                        ui.horizontal(|ui| {
+                            let mp4_btn = ui.add_enabled(
+                                !is_exporting && self.ffmpeg_available,
+                                egui::Button::new("🎥 Export MP4 (H.264)")
+                            );
+                            if mp4_btn.clicked() {
+                                let default_name = format!("{}.mp4", self.selected_kind.name().replace(['.', ' ', '/', '&'], "_"));
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .set_file_name(&default_name)
+                                    .add_filter("MP4 Video", &["mp4"])
+                                    .save_file()
+                                {
+                                    self.start_export(path, VideoFormat::Mp4H264);
+                                }
+                            }
+
+                            let gif_btn = ui.add_enabled(
+                                !is_exporting,
+                                egui::Button::new("🎞 Export GIF")
+                            );
+                            if gif_btn.clicked() {
+                                let default_name = format!("{}.gif", self.selected_kind.name().replace(['.', ' ', '/', '&'], "_"));
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .set_file_name(&default_name)
+                                    .add_filter("GIF Animation", &["gif"])
+                                    .save_file()
+                                {
+                                    self.start_export(path, VideoFormat::Gif);
+                                }
+                            }
+                        });
+
+                        ui.add_space(4.0);
+
+                        let batch_btn = ui.add_enabled(
+                            !is_exporting && self.ffmpeg_available,
+                            egui::Button::new("📦 Batch Export All 22 Puzzles...")
+                        );
+                        if batch_btn.clicked() {
+                            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                                self.start_batch_export(folder);
+                            }
+                        }
+
+                        // Export Progress Banner
+                        if let Some((progress, _)) = &self.active_export {
+                            ui.add_space(6.0);
+                            let frac = progress.fraction();
+                            ui.add(egui::ProgressBar::new(frac).show_percentage());
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Frame {} / {}", progress.current_frame.load(Ordering::Relaxed), progress.total_frames.load(Ordering::Relaxed)));
+                                if ui.button("Cancel").clicked() {
+                                    progress.cancel();
+                                }
+                            });
+                        }
+
+                        if let Some((msg, is_err)) = &self.export_message {
+                            ui.add_space(4.0);
+                            let color = if *is_err { Color32::from_rgb(255, 90, 90) } else { Color32::from_rgb(120, 230, 140) };
+                            ui.label(RichText::new(msg).color(color).small());
+                        }
+                    });
+
+                    ui.add_space(8.0);
+                });
+            });
+
+        // Bottom Transport Bar
+        egui::TopBottomPanel::bottom("transport_panel").show(ctx, |ui| {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                // Play / Pause
+                let play_text = if self.is_playing { "⏸ Pause" } else { "▶ Play" };
+                if ui.button(play_text).clicked() {
+                    self.is_playing = !self.is_playing;
+                }
+
+                // Restart
+                if ui.button("⏮ Restart").clicked() {
+                    self.playback_time = 0.0;
+                }
+
+                // Scrubber Slider
+                let mut t = self.playback_time;
+                let slider = egui::Slider::new(&mut t, 0.0..=self.timing.total_duration_sec)
+                    .custom_formatter(|val, _| format!("{:.2}s", val))
+                    .show_value(true);
+
+                let response = ui.add_sized([ui.available_width() - 220.0, 20.0], slider);
+                if response.changed() {
+                    self.playback_time = t;
+                    ctx.request_repaint();
+                }
+
+                // Speed buttons
+                ui.label("Speed:");
+                ui.selectable_value(&mut self.playback_speed, 0.5, "0.5x");
+                ui.selectable_value(&mut self.playback_speed, 1.0, "1x");
+                ui.selectable_value(&mut self.playback_speed, 2.0, "2x");
+            });
+            ui.add_space(4.0);
+        });
+
+        // Central Viewport
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(6.0);
+
+                // Simulation status banner
+                if let Some(sim) = &self.current_sim {
+                    let label = sim.status_label(current_progress);
+                    ui.label(RichText::new(label).strong().size(15.0).color(Color32::from_rgb(220, 230, 255)));
+                }
+
+                ui.add_space(4.0);
+
+                // Render Canvas
+                if let Some(tex) = &self.preview_texture {
+                    let avail_size = ui.available_size();
+                    let aspect = tex.aspect_ratio();
+
+                    let mut render_w = avail_size.x.min(avail_size.y * aspect) - 20.0;
+                    let mut render_h = render_w / aspect;
+
+                    if render_h > avail_size.y - 20.0 {
+                        render_h = avail_size.y - 20.0;
+                        render_w = render_h * aspect;
+                    }
+
+                    if render_w > 10.0 && render_h > 10.0 {
+                        ui.image((tex.id(), egui::vec2(render_w, render_h)));
+                    }
+                }
+            });
+        });
+    }
+}
