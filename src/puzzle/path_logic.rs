@@ -19,8 +19,8 @@ pub struct MazeSolverPuzzle {
 impl MazeSolverPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let grid_w = (complexity as usize * 3 + 12).clamp(15, 40);
-        let grid_h = (complexity as usize * 3 + 12).clamp(15, 40);
+        let grid_w = (complexity as usize * 2 + 12).clamp(15, 60);
+        let grid_h = (complexity as usize * 2 + 12).clamp(15, 60);
 
         // Generate maze via randomized DFS
         let mut walls_horiz = vec![vec![true; grid_w]; grid_h + 1];
@@ -206,7 +206,7 @@ pub struct NonogramFillPuzzle {
 impl NonogramFillPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let grid_size = (complexity as usize * 3 + 12).clamp(12, 35);
+        let grid_size = (complexity as usize * 2 + 12).clamp(12, 50);
         let mut solve_order = Vec::with_capacity(grid_size * grid_size);
 
         for r in 0..grid_size {
@@ -301,7 +301,7 @@ pub struct DelaunayMeshPuzzle {
 impl DelaunayMeshPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let num_nodes = (complexity as usize * 12 + 40).clamp(50, 160);
+        let num_nodes = (complexity as usize * 10 + 40).clamp(50, 250);
         let w = original.width() as f32;
         let h = original.height() as f32;
 
@@ -438,7 +438,7 @@ impl ScratchRevealPuzzle {
         let w = original.width() as f32;
         let h = original.height() as f32;
 
-        let num_sweeps = (complexity * 2 + 5).clamp(7, 25);
+        let num_sweeps = (complexity + 5).clamp(7, 30);
         let brush_radius = (h / num_sweeps as f32) * 1.35;
 
         let mut brush_path = Vec::new();
@@ -550,7 +550,7 @@ pub struct ColorByNumberPuzzle {
 impl ColorByNumberPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let num_colors = (complexity as usize * 3 + 8).clamp(8, 28);
+        let num_colors = (complexity as usize * 2 + 8).clamp(8, 45);
         let w = original.width();
         let h = original.height();
         let total_pixels = (w * h) as usize;

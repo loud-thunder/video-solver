@@ -17,7 +17,7 @@ pub struct StripSortPuzzle {
 impl StripSortPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let num_strips = (complexity as usize * 6 + 12).clamp(16, 64);
+        let num_strips = (complexity as usize * 6 + 12).clamp(16, 128);
 
         // Scramble strip indices
         let mut perm: Vec<usize> = (0..num_strips).collect();
@@ -181,8 +181,8 @@ fn d2xy(n: usize, mut d: usize) -> (usize, usize) {
 impl HilbertCurvePuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        // Hilbert curve order 3 (8x8=64) or order 4 (16x16=256)
-        let order = if complexity >= 6 { 4 } else { 3 };
+        // Hilbert curve order 3 (8x8=64), order 4 (16x16=256), or order 5 (32x32=1024)
+        let order = if complexity >= 12 { 5 } else if complexity >= 6 { 4 } else { 3 };
         let n = 1 << order;
         let total = n * n;
 
@@ -321,7 +321,7 @@ pub struct VoronoiShardsPuzzle {
 impl VoronoiShardsPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let num_seeds = (complexity as usize * 5 + 15).clamp(20, 65);
+        let num_seeds = (complexity as usize * 5 + 15).clamp(20, 120);
         let w = original.width() as f32;
         let h = original.height() as f32;
 
@@ -456,7 +456,7 @@ pub struct QuadtreeUnfoldPuzzle {
 
 impl QuadtreeUnfoldPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, _seed: u64) -> Self {
-        let max_depth = (complexity / 2 + 3).clamp(3, 7);
+        let max_depth = (complexity / 2 + 3).clamp(3, 8);
         let mut queue = vec![(0, 0, original.width(), original.height(), 0)];
         let mut split_sequence = Vec::new();
 

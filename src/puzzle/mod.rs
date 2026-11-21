@@ -190,7 +190,7 @@ impl PuzzleKind {
         complexity: u32,
         seed: u64,
     ) -> Box<dyn PuzzleSimulation> {
-        let c = complexity.clamp(1, 10);
+        let c = complexity.clamp(1, 20);
         match self {
             // Spatial
             PuzzleKind::JigsawClassic => Box::new(spatial::JigsawPuzzle::new(image, c, seed)),
@@ -274,6 +274,31 @@ impl EasingCurve {
     }
 }
 
+pub fn format_duration_mmss(seconds: f32) -> String {
+    let total_secs = seconds.max(0.0);
+    let mins = (total_secs / 60.0).floor() as u32;
+    let secs = (total_secs % 60.0).floor() as u32;
+    format!("{:02}:{:02}", mins, secs)
+}
+
+pub fn format_duration_mmss_sub(seconds: f32) -> String {
+    let total_secs = seconds.max(0.0);
+    let mins = (total_secs / 60.0).floor() as u32;
+    let secs = total_secs % 60.0;
+    format!("{:02}:{:04.1}", mins, secs)
+}
+
+pub fn parse_duration_string(s: &str) -> Option<f32> {
+    let s = s.trim();
+    if let Some((min_str, sec_str)) = s.split_once(':') {
+        let mins: f32 = min_str.trim().parse().ok()?;
+        let secs: f32 = sec_str.trim().parse().ok()?;
+        Some((mins * 60.0 + secs).clamp(0.1, 420.0))
+    } else {
+        s.parse::<f32>().ok().map(|v| v.clamp(0.1, 420.0))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TimingConfig {
     pub total_duration_sec: f32,
@@ -281,6 +306,7 @@ pub struct TimingConfig {
     pub fps: u32,
     pub easing: EasingCurve,
     pub complexity: u32,
+    pub auto_scale_steps: bool,
     pub seed: u64,
 }
 
@@ -292,12 +318,22 @@ impl Default for TimingConfig {
             fps: 60,
             easing: EasingCurve::EaseInOut,
             complexity: 5,
+            auto_scale_steps: false,
             seed: 42,
         }
     }
 }
 
 impl TimingConfig {
+    pub fn effective_complexity(&self) -> u32 {
+        if self.auto_scale_steps && self.total_duration_sec > 30.0 {
+            let scale_bonus = ((self.total_duration_sec - 30.0) / 39.0).round() as u32; // up to +10 for 420s
+            (self.complexity + scale_bonus).clamp(1, 20)
+        } else {
+            self.complexity.clamp(1, 20)
+        }
+    }
+
     pub fn solve_duration_sec(&self) -> f32 {
         let max_hold = (self.total_duration_sec * 0.5).max(0.0);
         let hold = self.hold_duration_sec.min(max_hold).max(0.0);

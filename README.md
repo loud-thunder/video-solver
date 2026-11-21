@@ -7,12 +7,15 @@ A native Rust desktop application and CLI tool that converts any input image int
 ## Features
 
 - **Native Studio GUI (`eframe` / `egui`)**:
-  - Live 60 FPS preview canvas with real-time playback scrubber (`0.0s .. D_total`).
+  - Live 60 FPS preview canvas with real-time playback scrubber (`0:00 .. 7:00`).
   - Play / Pause, restart, and variable playback speeds (`0.5x`, `1.0x`, `2.0x`).
   - Category filters and dropdown selector for all 22 puzzles.
-  - Interactive sliders for Puzzle Complexity (`1..=10`), Random Seed, Video Duration (`0.5s..60s`), End Hold Duration (`0.0s..3.0s`), FPS (`30` / `60`), and Easing Curves (`Linear`, `Ease-In-Out`, `Accelerate`, `Decelerate`).
+  - Interactive sliders for Puzzle Complexity (`1..=20`) with "Auto-scale step density for long videos" toggle.
+  - Random Seed generator.
+  - Video Duration slider up to **7 minutes (420.0s)** with `M:SS` formatting and quick presets: `[30s]`, `[1m]`, `[3m]`, `[5m]`, `[7m]`.
+  - Solved Hold Duration slider (`0.0s..10.0s`), FPS (`30` / `60`), and Easing Curves (`Linear`, `Ease-In-Out`, `Accelerate`, `Decelerate`).
   - Live Solve Rate readout calculating the exact rate in `moves / second` based on the specified duration.
-  - Single-click video export for `.mp4` (H.264), animated `.gif`, or **Batch Export All 22 Puzzles**.
+  - Single-click video export for `.mp4` (H.264), animated `.gif` (for videos $\le 1 \text{ min}$), or **Batch Export All 22 Puzzles**.
   - Built-in procedural image generators (Vibrant Mandala, Cyber Grid, Sunset Waves, Bauhaus Geometric) plus native file picker dialog for custom images (`PNG`, `JPG`, `WEBP`, `BMP`).
 
 - **CLI Support**:
@@ -71,13 +74,13 @@ cargo run --release
 
 ### 2. Headless CLI Video Export
 ```bash
-cargo run --release -- --cli --duration 4.0 --complexity 6 --puzzle "Classic Jigsaw" --output jigsaw.mp4
+cargo run --release -- --cli --duration 7:00 --complexity 12 --puzzle "Classic Jigsaw" --output jigsaw.mp4
 ```
 Options:
 - `--input <path>`: Path to image file (optional, defaults to procedural Mandala).
 - `--output <path>`: Target `.mp4` or `.gif` path (defaults to `puzzle_output.mp4`).
-- `--duration <sec>`: Total video duration in seconds (e.g. `5.0`).
-- `--complexity <1-10>`: Puzzle complexity scale (e.g. `5`).
+- `--duration <sec or M:SS>`: Total video duration up to 7 minutes (e.g. `420` or `7:00`).
+- `--complexity <1-20>`: Puzzle complexity scale (e.g. `12`).
 - `--puzzle <name or 1-22>`: Puzzle name substring or index `1..=22`.
 
 ### 3. Automated Verification Suite

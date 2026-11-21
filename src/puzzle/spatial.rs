@@ -19,8 +19,8 @@ pub struct JigsawPuzzle {
 impl JigsawPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let cols = (complexity + 2).clamp(3, 8);
-        let rows = (complexity + 2).clamp(3, 8);
+        let cols = (complexity / 2 + 3).clamp(3, 12);
+        let rows = (complexity / 2 + 3).clamp(3, 12);
         let total = (cols * rows) as usize;
 
         let mut scatter_positions = Vec::with_capacity(total);
@@ -176,11 +176,11 @@ pub struct SlidingGridPuzzle {
 impl SlidingGridPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let grid_size = (complexity as usize / 3 + 3).clamp(3, 5);
+        let grid_size = (complexity as usize / 3 + 3).clamp(3, 8);
         let total = grid_size * grid_size;
 
         // Scramble by legal moves from solved state
-        let scramble_moves = (complexity as usize * 12 + 20).clamp(25, 120);
+        let scramble_moves = (complexity as usize * 15 + 20).clamp(25, 250);
         let mut empty = total - 1;
         let mut scramble_history = Vec::new();
 
@@ -349,7 +349,7 @@ pub struct TileSwapPuzzle {
 impl TileSwapPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let grid_size = (complexity as usize / 2 + 3).clamp(3, 7);
+        let grid_size = (complexity as usize / 2 + 3).clamp(3, 10);
         let total = grid_size * grid_size;
 
         // Scramble permutation
@@ -496,7 +496,7 @@ pub struct RotatingTilesPuzzle {
 impl RotatingTilesPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let grid_size = (complexity as usize / 2 + 3).clamp(3, 8);
+        let grid_size = (complexity as usize / 2 + 3).clamp(3, 12);
         let total = grid_size * grid_size;
 
         let mut initial_rotations = Vec::with_capacity(total);
@@ -601,7 +601,7 @@ pub struct RotatingRingsPuzzle {
 impl RotatingRingsPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let ring_count = (complexity as usize + 3).clamp(4, 12);
+        let ring_count = (complexity as usize + 3).clamp(4, 24);
 
         let mut ring_offsets = Vec::with_capacity(ring_count);
         for i in 0..ring_count {
@@ -679,8 +679,8 @@ pub struct ToroidalShiftPuzzle {
 impl ToroidalShiftPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let grid_size = (complexity as usize / 2 + 3).clamp(3, 7);
-        let count = (complexity as usize * 3 + 6).clamp(8, 25);
+        let grid_size = (complexity as usize / 2 + 3).clamp(3, 10);
+        let count = (complexity as usize * 3 + 6).clamp(8, 50);
 
         let mut shifts = Vec::with_capacity(count);
         for _ in 0..count {
@@ -780,7 +780,7 @@ impl HexHoneycombPuzzle {
         let w = original.width() as f32;
         let h = original.height() as f32;
 
-        let radius = (60.0 - complexity as f32 * 3.0).clamp(24.0, 50.0);
+        let radius = (60.0 - complexity as f32 * 2.0).clamp(18.0, 50.0);
         let hex_w = 3.0_f32.sqrt() * radius;
         let hex_h = 1.5 * radius;
 
@@ -907,8 +907,8 @@ pub struct TriangleMeshPuzzle {
 impl TriangleMeshPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let cols = (complexity + 2).clamp(3, 7);
-        let rows = (complexity + 2).clamp(3, 7);
+        let cols = (complexity / 2 + 3).clamp(3, 10);
+        let rows = (complexity / 2 + 3).clamp(3, 10);
 
         let w = original.width() as f32;
         let h = original.height() as f32;

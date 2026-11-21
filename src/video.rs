@@ -93,7 +93,7 @@ pub fn export_video(
 
     let sim = config.puzzle_kind.create_simulation(
         &final_img,
-        config.timing.complexity,
+        config.timing.effective_complexity(),
         config.timing.seed,
     );
 

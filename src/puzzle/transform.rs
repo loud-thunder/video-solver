@@ -19,7 +19,7 @@ impl SwirlVortexPuzzle {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         let w = original.width() as f32;
         let h = original.height() as f32;
-        let num_vortices = (complexity as usize / 3 + 1).clamp(1, 4);
+        let num_vortices = (complexity as usize / 3 + 1).clamp(1, 6);
 
         let mut centers = Vec::with_capacity(num_vortices);
         // Main center vortex
@@ -114,7 +114,7 @@ pub struct WavePhaseAlignPuzzle {
 impl WavePhaseAlignPuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let count = (complexity as usize * 2 + 3).clamp(4, 15);
+        let count = (complexity as usize * 2 + 3).clamp(4, 25);
 
         let mut harmonics = Vec::with_capacity(count);
         for i in 0..count {
@@ -204,7 +204,7 @@ pub struct KaleidoscopePuzzle {
 
 impl KaleidoscopePuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, _seed: u64) -> Self {
-        let folds = (complexity as usize / 2 + 3).clamp(3, 8) * 2;
+        let folds = (complexity as usize / 2 + 3).clamp(3, 12) * 2;
         Self {
             original: original.clone(),
             folds,
@@ -305,7 +305,7 @@ impl ChromaticGlitchPuzzle {
             scanline_shifts.push(shift);
         }
 
-        let max_aberration = (complexity as f32 * 4.0 + 15.0).clamp(15.0, 50.0);
+        let max_aberration = (complexity as f32 * 3.0 + 15.0).clamp(15.0, 70.0);
 
         Self {
             original: original.clone(),
@@ -380,7 +380,7 @@ pub struct MosaicCoalescePuzzle {
 
 impl MosaicCoalescePuzzle {
     pub fn new(original: &RgbaImage, complexity: u32, _seed: u64) -> Self {
-        let initial_block_size = (complexity * 6 + 24).clamp(24, 72);
+        let initial_block_size = (complexity * 4 + 24).clamp(24, 100);
         Self {
             original: original.clone(),
             initial_block_size,
