@@ -137,9 +137,13 @@ Mechanics inspired by combinatorial puzzles, graph traversals, and procedural re
 ### 1. Dynamic Duration-to-Rate Scaling
 The playback duration dictates the step frequency of the underlying solver engine:
 
-$$D_{\text{solve}} = \max\left(0.1, D_{\text{total}} - D_{\text{hold}}\right)$$
+$$
+D_{\text{solve}} = \max\left(0.1, D_{\text{total}} - D_{\text{hold}}\right)
+$$
 
-$$\text{Solve Rate} = \frac{N_{\text{steps}}}{D_{\text{solve}}} \quad \left[\frac{\text{moves}}{\text{second}}\right]$$
+$$
+\text{Solve Rate} = \frac{N_{\text{steps}}}{D_{\text{solve}}} \quad \left[\frac{\text{moves}}{\text{second}}\right]
+$$
 
 - Durations range from **0.1 seconds up to 7 minutes (420.0s)** with unrounded sub-second precision.
 - Sub-step progress is continuously smoothed per frame via user-selected easing curves:
@@ -151,11 +155,13 @@ $$\text{Solve Rate} = \frac{N_{\text{steps}}}{D_{\text{solve}}} \quad \left[\fra
 ### 2. 3-Phase Seamless Roll-Back Loop
 To generate infinite looping videos without abrupt cuts or simple frame reversals:
 
-$$S(t) = \begin{cases} 
-\text{Solve}\left(\dfrac{t}{0.45}\right), & t \in [0, 0.45) \\[8pt]
-\text{Hold}(1.0), & t \in [0.45, 0.55) \\[8pt]
+$$
+S(t) = \begin{cases} 
+\text{Solve}\left(\dfrac{t}{0.45}\right), & t \in [0, 0.45) \\
+\text{Hold}(1.0), & t \in [0.45, 0.55) \\
 \text{Rollback}\left(\dfrac{t - 0.55}{0.45}\right), & t \in [0.55, 1.0]
-\end{cases}$$
+\end{cases}
+$$
 
 - **Phase 1 (0% – 45%)**: Forward algorithmic solution from scrambled state to completed image.
 - **Phase 2 (45% – 55%)**: Solved hold duration allowing viewers to appreciate the final artwork.
