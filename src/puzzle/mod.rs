@@ -239,6 +239,7 @@ pub trait PuzzleSimulation: Send + Sync {
     fn status_label(&self, progress: f32) -> String;
     fn render_frame(&self, progress: f32, out: &mut RgbaImage);
     fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage);
+    fn update_source(&mut self, image: &RgbaImage);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -113,6 +113,7 @@ impl MazeSolverPuzzle {
 }
 
 impl PuzzleSimulation for MazeSolverPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::MazeSolver
     }
@@ -292,6 +293,7 @@ impl NonogramFillPuzzle {
 }
 
 impl PuzzleSimulation for NonogramFillPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::NonogramFill
     }
@@ -461,6 +463,7 @@ impl DelaunayMeshPuzzle {
 }
 
 impl PuzzleSimulation for DelaunayMeshPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::DelaunayMesh
     }
@@ -639,6 +642,7 @@ impl ScratchRevealPuzzle {
 }
 
 impl PuzzleSimulation for ScratchRevealPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::ScratchReveal
     }
@@ -828,6 +832,7 @@ impl ColorByNumberPuzzle {
 }
 
 impl PuzzleSimulation for ColorByNumberPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::ColorByNumber
     }

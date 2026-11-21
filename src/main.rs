@@ -3,14 +3,17 @@ mod puzzle;
 mod video;
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
 use app::VideoSolverApp;
 use eframe::egui;
 use puzzle::drawing::SampleImageType;
 use puzzle::{PuzzleKind, TimingConfig};
-use video::{export_video, ExportJobConfig, ExportProgress, VideoFormat};
+use video::{
+    export_video, export_video_media, load_video_from_path, ExportJobConfig, ExportProgress,
+    SourceMedia, VideoFormat, VideoLoopMode,
+};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -45,6 +48,18 @@ fn main() -> anyhow::Result<()> {
     .map_err(|e| anyhow::anyhow!("Failed to run eframe: {}", e))
 }
 
+fn is_video_path(path: &Path) -> bool {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default();
+    matches!(
+        ext.as_str(),
+        "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" | "gif"
+    )
+}
+
 fn run_automated_verification() -> anyhow::Result<()> {
     // 1. Test image generation
     println!("Step 1: Generating sample procedural images...");
@@ -59,7 +74,7 @@ fn run_automated_verification() -> anyhow::Result<()> {
     let mut frame_buf = image::RgbaImage::new(320, 320);
 
     for (i, kind) in PuzzleKind::ALL.iter().enumerate() {
-        let sim = kind.create_simulation(&img, 5, 42);
+        let mut sim = kind.create_simulation(&img, 5, 42);
         assert!(sim.total_steps() > 0, "Puzzle {:?} has 0 steps", kind);
 
         // Test scrambled state (progress = 0.0)
@@ -78,6 +93,9 @@ fn run_automated_verification() -> anyhow::Result<()> {
         sim.render_rollback_frame(0.5, &mut frame_buf);
         sim.render_rollback_frame(1.0, &mut frame_buf);
 
+        // Test update_source
+        sim.update_source(&img);
+
         println!(
             "  [{:02}/22] {:<30} | Steps: {:<4} | Status: {}",
             i + 1,
@@ -86,7 +104,7 @@ fn run_automated_verification() -> anyhow::Result<()> {
             status_1
         );
     }
-    println!("✓ All 22 puzzle simulations initialized and rendered successfully (including roll-back)!");
+    println!("✓ All 22 puzzle simulations initialized, rendered, and updated successfully (including roll-back)!");
 
     // 3. Test video export to MP4 via ffmpeg
     let test_mp4 = PathBuf::from("target/test_output.mp4");
@@ -175,6 +193,59 @@ fn run_automated_verification() -> anyhow::Result<()> {
     assert!(test_gif.exists(), "GIF file was not created");
     println!("✓ GIF exported successfully: {} (size: {} bytes)", test_gif.display(), std::fs::metadata(&test_gif)?.len());
 
+    // 5. Test Video Source Import & Export with Loop & Bounce Modes
+    println!("Step 5: Testing imported video source playback with ContinuousLoop and Bounce modes...");
+    let mut imported_media = load_video_from_path(&test_mp4)?;
+    assert!(imported_media.is_video(), "Imported media should have multiple frames");
+    println!(
+        "✓ Successfully decoded test MP4 video ({} frames, {}x{}, {:.1} fps)",
+        imported_media.total_video_frames(),
+        imported_media.width(),
+        imported_media.height(),
+        imported_media.source_fps,
+    );
+
+    // Test Continuous Loop Mode
+    imported_media.loop_mode = VideoLoopMode::ContinuousLoop;
+    let test_vid_loop_mp4 = PathBuf::from("target/test_imported_video_loop.mp4");
+    let vid_loop_config = ExportJobConfig {
+        output_path: test_vid_loop_mp4.clone(),
+        format: VideoFormat::Mp4H264,
+        width: 320,
+        height: 320,
+        timing: TimingConfig {
+            total_duration_sec: 2.0,
+            hold_duration_sec: 0.2,
+            fps: 30,
+            easing: puzzle::EasingCurve::EaseInOut,
+            complexity: 4,
+            auto_scale_steps: false,
+            rollback: false,
+            seed: 42,
+        },
+        puzzle_kind: PuzzleKind::JigsawClassic,
+    };
+    let vid_loop_prog = ExportProgress::new(vid_loop_config.timing.total_frames());
+    export_video_media(&imported_media, &vid_loop_config, vid_loop_prog)?;
+    assert!(test_vid_loop_mp4.exists(), "Continuous Loop video MP4 was not created");
+    println!("✓ Video source with ContinuousLoop mode exported successfully: {}", test_vid_loop_mp4.display());
+
+    // Test Bounce Mode
+    imported_media.loop_mode = VideoLoopMode::Bounce;
+    let test_vid_bounce_mp4 = PathBuf::from("target/test_imported_video_bounce.mp4");
+    let vid_bounce_config = ExportJobConfig {
+        output_path: test_vid_bounce_mp4.clone(),
+        format: VideoFormat::Mp4H264,
+        width: 320,
+        height: 320,
+        timing: vid_loop_config.timing.clone(),
+        puzzle_kind: PuzzleKind::TileSwap,
+    };
+    let vid_bounce_prog = ExportProgress::new(vid_bounce_config.timing.total_frames());
+    export_video_media(&imported_media, &vid_bounce_config, vid_bounce_prog)?;
+    assert!(test_vid_bounce_mp4.exists(), "Bounce video MP4 was not created");
+    println!("✓ Video source with Bounce mode exported successfully: {}", test_vid_bounce_mp4.display());
+
     Ok(())
 }
 
@@ -185,6 +256,8 @@ fn run_cli_export(args: &[String]) -> anyhow::Result<()> {
     let mut complexity = 5u32;
     let mut puzzle_index = 0usize;
     let mut rollback = false;
+    let mut loop_mode = VideoLoopMode::ContinuousLoop;
+    let mut video_speed = 1.0f32;
 
     let mut i = 1;
     while i < args.len() {
@@ -210,6 +283,23 @@ fn run_cli_export(args: &[String]) -> anyhow::Result<()> {
             "--rollback" => {
                 rollback = true;
             }
+            "--video-loop" => {
+                i += 1;
+                if i < args.len() {
+                    let val = args[i].to_lowercase();
+                    if val.contains("bounce") || val.contains("pingpong") {
+                        loop_mode = VideoLoopMode::Bounce;
+                    } else {
+                        loop_mode = VideoLoopMode::ContinuousLoop;
+                    }
+                }
+            }
+            "--video-speed" => {
+                i += 1;
+                if i < args.len() {
+                    video_speed = args[i].parse().unwrap_or(1.0);
+                }
+            }
             "--puzzle" => {
                 i += 1;
                 if i < args.len() {
@@ -228,13 +318,28 @@ fn run_cli_export(args: &[String]) -> anyhow::Result<()> {
         i += 1;
     }
 
-    let img = if let Some(path) = input_path {
-        println!("Loading input image from: {}", path);
-        image::open(path)?.to_rgba8()
+    let mut media = if let Some(path_str) = input_path {
+        let p = Path::new(&path_str);
+        if is_video_path(p) {
+            println!("Loading input video from: {}", path_str);
+            match load_video_from_path(p) {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("Failed to load as video ({}), falling back to image...", e);
+                    SourceMedia::from_image(image::open(p)?.to_rgba8())
+                }
+            }
+        } else {
+            println!("Loading input image from: {}", path_str);
+            SourceMedia::from_image(image::open(p)?.to_rgba8())
+        }
     } else {
         println!("Using default Vibrant Mandala procedural image...");
-        SampleImageType::VibrantMandala.generate(600, 600)
+        SourceMedia::from_image(SampleImageType::VibrantMandala.generate(600, 600))
     };
+
+    media.loop_mode = loop_mode;
+    media.speed = video_speed;
 
     let kind = PuzzleKind::ALL[puzzle_index];
     let timing = TimingConfig {
@@ -251,13 +356,16 @@ fn run_cli_export(args: &[String]) -> anyhow::Result<()> {
 
     println!("Puzzle: {}", kind.name());
     println!("Duration: {:.1}s (FPS: {})", timing.total_duration_sec, timing.fps);
+    if media.is_video() {
+        println!("Video Source: {} frames, Loop: {:?}, Speed: {:.1}x", media.total_video_frames(), media.loop_mode, media.speed);
+    }
     println!("Output: {}", output_path);
 
     let config = ExportJobConfig {
         output_path: PathBuf::from(output_path),
         format,
-        width: img.width(),
-        height: img.height(),
+        width: media.width(),
+        height: media.height(),
         timing,
         puzzle_kind: kind,
     };
@@ -276,7 +384,7 @@ fn run_cli_export(args: &[String]) -> anyhow::Result<()> {
         }
     });
 
-    export_video(&img, &config, progress)?;
+    export_video_media(&media, &config, progress)?;
     let _ = watcher.join();
     println!("\nExport finished successfully!");
     Ok(())

@@ -56,6 +56,7 @@ impl JigsawPuzzle {
 }
 
 impl PuzzleSimulation for JigsawPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::JigsawClassic
     }
@@ -353,6 +354,7 @@ impl SlidingGridPuzzle {
 }
 
 impl PuzzleSimulation for SlidingGridPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::SlidingGrid
     }
@@ -578,6 +580,7 @@ impl TileSwapPuzzle {
 }
 
 impl PuzzleSimulation for TileSwapPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::TileSwap
     }
@@ -787,6 +790,7 @@ impl RotatingTilesPuzzle {
 }
 
 impl PuzzleSimulation for RotatingTilesPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::RotatingTiles
     }
@@ -948,6 +952,7 @@ impl RotatingRingsPuzzle {
 }
 
 impl PuzzleSimulation for RotatingRingsPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::RotatingRings
     }
@@ -1065,6 +1070,7 @@ impl ToroidalShiftPuzzle {
 }
 
 impl PuzzleSimulation for ToroidalShiftPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::ToroidalShift
     }
@@ -1235,6 +1241,7 @@ impl HexHoneycombPuzzle {
 }
 
 impl PuzzleSimulation for HexHoneycombPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::HexHoneycomb
     }
@@ -1428,6 +1435,7 @@ impl TriangleMeshPuzzle {
 }
 
 impl PuzzleSimulation for TriangleMeshPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::TriangleMesh
     }

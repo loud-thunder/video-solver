@@ -77,6 +77,7 @@ impl StripSortPuzzle {
 }
 
 impl PuzzleSimulation for StripSortPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::StripSort
     }
@@ -286,6 +287,7 @@ impl HilbertCurvePuzzle {
 }
 
 impl PuzzleSimulation for HilbertCurvePuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::HilbertCurveSort
     }
@@ -487,6 +489,7 @@ impl VoronoiShardsPuzzle {
 }
 
 impl PuzzleSimulation for VoronoiShardsPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::VoronoiShards
     }
@@ -702,6 +705,7 @@ impl QuadtreeUnfoldPuzzle {
 }
 
 impl PuzzleSimulation for QuadtreeUnfoldPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::QuadtreeUnfold
     }

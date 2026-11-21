@@ -4,12 +4,15 @@ use image::RgbaImage;
 
 #[path = "../src/puzzle/mod.rs"]
 mod puzzle;
+#[path = "../src/video.rs"]
+mod video;
 
 use puzzle::drawing::SampleImageType;
 use puzzle::{
     format_duration_mmss, format_duration_mmss_sub, parse_duration_string, EasingCurve,
     PlaybackPhase, PuzzleCategory, PuzzleKind, TimingConfig,
 };
+use video::{SourceMedia, VideoLoopMode};
 
 #[test]
 fn test_all_22_puzzles_initialize_and_render_complexity_20() {
@@ -293,5 +296,112 @@ fn test_3_phase_playback_timing() {
     match timing.playback_state_at_time(10.0) {
         PlaybackPhase::Rollback(p) => assert_eq!(p, 1.0),
         _ => panic!("Expected Rollback at time 10.0"),
+    }
+}
+
+#[test]
+fn test_video_source_continuous_loop_mode() {
+    let dummy_frames = vec![
+        RgbaImage::new(10, 10),
+        RgbaImage::new(10, 10),
+        RgbaImage::new(10, 10),
+        RgbaImage::new(10, 10),
+    ]; // 4 frames: 0, 1, 2, 3
+    let media = SourceMedia {
+        frames: dummy_frames,
+        source_fps: 10.0,
+        loop_mode: VideoLoopMode::ContinuousLoop,
+        speed: 1.0,
+    };
+
+    assert_eq!(media.total_video_frames(), 4);
+    assert_eq!(media.loop_mode.name(), "Continuous (0 → 100, 0 → 100)");
+
+    // At 10 fps:
+    // t = 0.0s -> frame 0
+    assert_eq!(media.frame_index_at_time(0.0), 0);
+    // t = 0.1s -> frame 1
+    assert_eq!(media.frame_index_at_time(0.1), 1);
+    // t = 0.2s -> frame 2
+    assert_eq!(media.frame_index_at_time(0.2), 2);
+    // t = 0.3s -> frame 3
+    assert_eq!(media.frame_index_at_time(0.3), 3);
+    // t = 0.4s -> frame 0 (loops back to 0)
+    assert_eq!(media.frame_index_at_time(0.4), 0);
+    // t = 0.5s -> frame 1
+    assert_eq!(media.frame_index_at_time(0.5), 1);
+    // t = 0.7s -> frame 3
+    assert_eq!(media.frame_index_at_time(0.7), 3);
+    // t = 0.8s -> frame 0
+    assert_eq!(media.frame_index_at_time(0.8), 0);
+}
+
+#[test]
+fn test_video_source_bounce_mode() {
+    let dummy_frames = vec![
+        RgbaImage::new(10, 10),
+        RgbaImage::new(10, 10),
+        RgbaImage::new(10, 10),
+        RgbaImage::new(10, 10),
+    ]; // 4 frames: 0, 1, 2, 3
+    let media = SourceMedia {
+        frames: dummy_frames,
+        source_fps: 10.0,
+        loop_mode: VideoLoopMode::Bounce,
+        speed: 1.0,
+    };
+
+    assert_eq!(media.loop_mode.name(), "Bounce (0 → 100 → 0)");
+
+    // Cycle length is 2 * (4 - 1) = 6:
+    // sequence: 0, 1, 2, 3, 2, 1, 0, 1, 2, 3, 2, 1, 0...
+    assert_eq!(media.frame_index_at_time(0.0), 0);
+    assert_eq!(media.frame_index_at_time(0.1), 1);
+    assert_eq!(media.frame_index_at_time(0.2), 2);
+    assert_eq!(media.frame_index_at_time(0.3), 3); // turnaround at peak 3
+    assert_eq!(media.frame_index_at_time(0.4), 2);
+    assert_eq!(media.frame_index_at_time(0.5), 1);
+    assert_eq!(media.frame_index_at_time(0.6), 0); // turnaround at bottom 0
+    assert_eq!(media.frame_index_at_time(0.7), 1);
+    assert_eq!(media.frame_index_at_time(0.8), 2);
+    assert_eq!(media.frame_index_at_time(0.9), 3);
+    assert_eq!(media.frame_index_at_time(1.0), 2);
+}
+
+#[test]
+fn test_video_source_speed_multiplier() {
+    let dummy_frames = vec![
+        RgbaImage::new(10, 10),
+        RgbaImage::new(10, 10),
+        RgbaImage::new(10, 10),
+        RgbaImage::new(10, 10),
+    ];
+    let media_2x = SourceMedia {
+        frames: dummy_frames,
+        source_fps: 10.0,
+        loop_mode: VideoLoopMode::ContinuousLoop,
+        speed: 2.0,
+    };
+
+    // At 2.0x speed, 0.1s acts like 0.2s (20 fps effective)
+    assert_eq!(media_2x.frame_index_at_time(0.0), 0);
+    assert_eq!(media_2x.frame_index_at_time(0.05), 1);
+    assert_eq!(media_2x.frame_index_at_time(0.1), 2);
+    assert_eq!(media_2x.frame_index_at_time(0.15), 3);
+    assert_eq!(media_2x.frame_index_at_time(0.2), 0);
+}
+
+#[test]
+fn test_all_22_puzzles_support_update_source() {
+    let img1 = SampleImageType::VibrantMandala.generate(64, 64);
+    let img2 = SampleImageType::CyberGrid.generate(64, 64);
+    let mut frame_buf = RgbaImage::new(64, 64);
+
+    for kind in PuzzleKind::ALL {
+        let mut sim = kind.create_simulation(&img1, 3, 100);
+        sim.render_frame(0.5, &mut frame_buf);
+        sim.update_source(&img2);
+        sim.render_frame(0.5, &mut frame_buf);
+        sim.render_rollback_frame(0.5, &mut frame_buf);
     }
 }
