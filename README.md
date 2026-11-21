@@ -186,6 +186,18 @@ sudo apt install ffmpeg
 choco install ffmpeg
 ```
 
+### Developer Symlink Installation (`video-solver` in PATH)
+To build in release mode and symlink the binary into `/usr/local/bin/video-solver` for easy development and system-wide CLI access:
+
+```bash
+./scripts/install-dev.sh
+```
+
+Once linked, you can run `video-solver` from any directory. To remove the symlink:
+```bash
+sudo rm -f /usr/local/bin/video-solver
+```
+
 ### 1. Launch Interactive Studio GUI
 ```bash
 cargo run --release

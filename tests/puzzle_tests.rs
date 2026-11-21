@@ -15,11 +15,11 @@ use puzzle::{
 use video::{SourceMedia, VideoLoopMode};
 
 #[test]
-fn test_all_22_puzzles_initialize_and_render_complexity_20() {
+fn test_all_52_puzzles_initialize_and_render_complexity_20() {
     let img = SampleImageType::VibrantMandala.generate(128, 128);
     let mut frame_buf = RgbaImage::new(128, 128);
 
-    assert_eq!(PuzzleKind::ALL.len(), 22);
+    assert_eq!(PuzzleKind::ALL.len(), 52);
 
     for kind in PuzzleKind::ALL {
         let sim = kind.create_simulation(&img, 20, 9999);
@@ -83,11 +83,11 @@ fn test_seven_minute_duration_rate() {
 }
 
 #[test]
-fn test_all_22_puzzles_initialize_and_render() {
+fn test_all_52_puzzles_initialize_and_render() {
     let img = SampleImageType::VibrantMandala.generate(128, 128);
     let mut frame_buf = RgbaImage::new(128, 128);
 
-    assert_eq!(PuzzleKind::ALL.len(), 22);
+    assert_eq!(PuzzleKind::ALL.len(), 52);
 
     for kind in PuzzleKind::ALL {
         let sim = kind.create_simulation(&img, 5, 42);
@@ -170,6 +170,8 @@ fn test_categories_coverage() {
     let mut sort_count = 0;
     let mut transform_count = 0;
     let mut path_count = 0;
+    let mut physics_count = 0;
+    let mut automata_count = 0;
 
     for kind in PuzzleKind::ALL {
         match kind.category() {
@@ -177,18 +179,25 @@ fn test_categories_coverage() {
             PuzzleCategory::SortingAndAlgorithmic => sort_count += 1,
             PuzzleCategory::TransformAndSignal => transform_count += 1,
             PuzzleCategory::PathAndLogic => path_count += 1,
+            PuzzleCategory::PhysicsAndDynamics => physics_count += 1,
+            PuzzleCategory::CellularAndAutomata => automata_count += 1,
         }
     }
 
-    assert_eq!(spatial_count, 8);
-    assert_eq!(sort_count, 4);
-    assert_eq!(transform_count, 5);
-    assert_eq!(path_count, 5);
-    assert_eq!(spatial_count + sort_count + transform_count + path_count, 22);
+    assert_eq!(spatial_count, 9);
+    assert_eq!(sort_count, 9);
+    assert_eq!(transform_count, 9);
+    assert_eq!(path_count, 8);
+    assert_eq!(physics_count, 9);
+    assert_eq!(automata_count, 8);
+    assert_eq!(
+        spatial_count + sort_count + transform_count + path_count + physics_count + automata_count,
+        52
+    );
 }
 
 #[test]
-fn test_rollback_all_22_puzzles_seamless_loop() {
+fn test_rollback_all_52_puzzles_seamless_loop() {
     let img = SampleImageType::VibrantMandala.generate(96, 96);
     let mut initial_solve_frame = RgbaImage::new(96, 96);
     let mut end_rollback_frame = RgbaImage::new(96, 96);
@@ -392,7 +401,7 @@ fn test_video_source_speed_multiplier() {
 }
 
 #[test]
-fn test_all_22_puzzles_support_update_source() {
+fn test_all_52_puzzles_support_update_source() {
     let img1 = SampleImageType::VibrantMandala.generate(64, 64);
     let img2 = SampleImageType::CyberGrid.generate(64, 64);
     let mut frame_buf = RgbaImage::new(64, 64);

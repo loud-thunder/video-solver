@@ -69,8 +69,8 @@ fn run_automated_verification() -> anyhow::Result<()> {
     assert_eq!(img.height(), 320);
     println!("✓ Procedural image generated successfully (320x320)");
 
-    // 2. Test all 22 puzzles
-    println!("Step 2: Initializing and rendering all 22 puzzle simulations...");
+    // 2. Test all 52 puzzles
+    println!("Step 2: Initializing and rendering all 52 puzzle simulations...");
     let mut frame_buf = image::RgbaImage::new(320, 320);
 
     for (i, kind) in PuzzleKind::ALL.iter().enumerate() {
@@ -97,14 +97,14 @@ fn run_automated_verification() -> anyhow::Result<()> {
         sim.update_source(&img);
 
         println!(
-            "  [{:02}/22] {:<30} | Steps: {:<4} | Status: {}",
+            "  [{:02}/52] {:<35} | Steps: {:<4} | Status: {}",
             i + 1,
             kind.name(),
             sim.total_steps(),
             status_1
         );
     }
-    println!("✓ All 22 puzzle simulations initialized, rendered, and updated successfully (including roll-back)!");
+    println!("✓ All 52 puzzle simulations initialized, rendered, and updated successfully (including roll-back)!");
 
     // 3. Test video export to MP4 via ffmpeg
     let test_mp4 = PathBuf::from("target/test_output.mp4");

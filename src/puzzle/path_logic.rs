@@ -923,3 +923,361 @@ impl PuzzleSimulation for ColorByNumberPuzzle {
         }
     }
 }
+
+// ============================================================================
+// 50. TRAVELING SALESPERSON TOUR
+// ============================================================================
+
+pub struct TSPTourPuzzle {
+    original: RgbaImage,
+    tour: Vec<(f32, f32)>,
+}
+
+impl TSPTourPuzzle {
+    pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let num_nodes = (complexity * 8 + 40).clamp(40, 200) as usize;
+        let w = original.width() as f32;
+        let h = original.height() as f32;
+
+        let mut nodes = Vec::with_capacity(num_nodes);
+        for _ in 0..num_nodes {
+            nodes.push((rng.gen_range(0.05..0.95) * w, rng.gen_range(0.05..0.95) * h));
+        }
+
+        // Greedy Nearest Neighbor tour
+        let mut unvisited: Vec<bool> = vec![true; num_nodes];
+        let mut tour = Vec::with_capacity(num_nodes);
+        let mut cur = 0;
+        tour.push(nodes[cur]);
+        unvisited[cur] = false;
+
+        for _ in 1..num_nodes {
+            let (cx, cy) = nodes[cur];
+            let mut best_dist = f32::MAX;
+            let mut next = cur;
+
+            for (i, &uv) in unvisited.iter().enumerate() {
+                if uv {
+                    let (nx, ny) = nodes[i];
+                    let d = (nx - cx) * (nx - cx) + (ny - cy) * (ny - cy);
+                    if d < best_dist {
+                        best_dist = d;
+                        next = i;
+                    }
+                }
+            }
+            unvisited[next] = false;
+            tour.push(nodes[next]);
+            cur = next;
+        }
+
+        Self {
+            original: original.clone(),
+            tour,
+        }
+    }
+}
+
+impl PuzzleSimulation for TSPTourPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) {
+        self.original = image.clone();
+    }
+    fn kind(&self) -> PuzzleKind {
+        PuzzleKind::TSPTour
+    }
+    fn total_steps(&self) -> usize {
+        self.tour.len()
+    }
+    fn status_label(&self, progress: f32) -> String {
+        let cur = (progress * self.tour.len() as f32).round() as usize;
+        format!("TSP Tour: {} / {} city waypoints visited", cur.min(self.tour.len()), self.tour.len())
+    }
+
+    fn render_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let w = self.original.width();
+        let h = self.original.height();
+
+        if progress >= 0.9999 {
+            *out = self.original.clone();
+            return;
+        }
+
+        // Canvas backdrop
+        for y in 0..h {
+            for x in 0..w {
+                out.put_pixel(x, y, Rgba([22, 22, 28, 255]));
+            }
+        }
+
+        let total = self.tour.len();
+        let cur_f = progress * total as f32;
+        let cur_idx = (cur_f.floor() as usize).min(total);
+        let radius = (w as f32 * (0.04 + 0.12 * progress)).max(6.0) as i32;
+
+        // Reveal circular brush stamps along visited tour nodes
+        for i in 0..cur_idx {
+            let (cx, cy) = self.tour[i];
+            let ix = cx as i32;
+            let iy = cy as i32;
+
+            for dy in -radius..=radius {
+                for dx in -radius..=radius {
+                    if dx * dx + dy * dy <= radius * radius {
+                        let px = ix + dx;
+                        let py = iy + dy;
+                        if px >= 0 && px < w as i32 && py >= 0 && py < h as i32 {
+                            out.put_pixel(px as u32, py as u32, *self.original.get_pixel(px as u32, py as u32));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw connecting laser tour path
+        for i in 0..cur_idx.saturating_sub(1) {
+            let p0 = self.tour[i];
+            let p1 = self.tour[i + 1];
+            drawing::draw_line(out, p0.0 as i32, p0.1 as i32, p1.0 as i32, p1.1 as i32, Rgba([255, 200, 80, 200]), 1);
+        }
+
+        // Final blend in last stretch
+        if progress > 0.85 {
+            let blend = (progress - 0.85) / 0.15;
+            for y in 0..h {
+                for x in 0..w {
+                    let cur = out.get_pixel(x, y);
+                    let orig = self.original.get_pixel(x, y);
+                    let r = ((cur.0[0] as f32 * (1.0 - blend)) + (orig.0[0] as f32 * blend)) as u8;
+                    let g = ((cur.0[1] as f32 * (1.0 - blend)) + (orig.0[1] as f32 * blend)) as u8;
+                    let b = ((cur.0[2] as f32 * (1.0 - blend)) + (orig.0[2] as f32 * blend)) as u8;
+                    out.put_pixel(x, y, Rgba([r, g, b, 255]));
+                }
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        self.render_frame(1.0 - progress, out);
+    }
+}
+
+// ============================================================================
+// 51. A* DIJKSTRA COST WAVEFRONT
+// ============================================================================
+
+pub struct DijkstraWavePuzzle {
+    original: RgbaImage,
+    cost_field: Vec<f32>,
+    grid_w: usize,
+    grid_h: usize,
+}
+
+impl DijkstraWavePuzzle {
+    pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let grid_w = (complexity as usize * 3 + 24).clamp(24, 72);
+        let grid_h = (grid_w * original.height() as usize) / original.width() as usize;
+        let total = grid_w * grid_h;
+
+        let mut cost_field = vec![0.0f32; total];
+        let sx = rng.gen_range(0.2..0.8) * grid_w as f32;
+        let sy = rng.gen_range(0.2..0.8) * grid_h as f32;
+        let max_dist = (grid_w as f32).hypot(grid_h as f32);
+
+        for gy in 0..grid_h {
+            for gx in 0..grid_w {
+                let dx = gx as f32 - sx;
+                let dy = gy as f32 - sy;
+                let dist = (dx * dx + dy * dy).sqrt();
+                let noise = rng.gen_range(-0.1..0.1);
+                cost_field[gy * grid_w + gx] = ((dist / max_dist) + noise).clamp(0.01, 0.98);
+            }
+        }
+
+        Self {
+            original: original.clone(),
+            cost_field,
+            grid_w,
+            grid_h,
+        }
+    }
+}
+
+impl PuzzleSimulation for DijkstraWavePuzzle {
+    fn update_source(&mut self, image: &RgbaImage) {
+        self.original = image.clone();
+    }
+    fn kind(&self) -> PuzzleKind {
+        PuzzleKind::DijkstraWave
+    }
+    fn total_steps(&self) -> usize {
+        self.grid_w * self.grid_h
+    }
+    fn status_label(&self, progress: f32) -> String {
+        format!("Dijkstra Wave: {:.1}% cost frontier illuminated", progress * 100.0)
+    }
+
+    fn render_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let w = self.original.width();
+        let h = self.original.height();
+
+        if progress >= 0.9999 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let cell_w = w as f32 / self.grid_w as f32;
+        let cell_h = h as f32 / self.grid_h as f32;
+
+        for gy in 0..self.grid_h {
+            let y0 = (gy as f32 * cell_h) as u32;
+            let y1 = (((gy + 1) as f32 * cell_h) as u32).min(h);
+
+            for gx in 0..self.grid_w {
+                let x0 = (gx as f32 * cell_w) as u32;
+                let x1 = (((gx + 1) as f32 * cell_w) as u32).min(w);
+
+                let cost = self.cost_field[gy * self.grid_w + gx];
+                let diff = progress - cost;
+
+                if diff >= 0.04 {
+                    // Fully illuminated
+                    for y in y0..y1 {
+                        for x in x0..x1 {
+                            out.put_pixel(x, y, *self.original.get_pixel(x, y));
+                        }
+                    }
+                } else if diff >= 0.0 {
+                    // Active search wavefront line: neon cyan
+                    for y in y0..y1 {
+                        for x in x0..x1 {
+                            out.put_pixel(x, y, Rgba([80, 240, 255, 255]));
+                        }
+                    }
+                } else {
+                    // Unvisited fog of war
+                    for y in y0..y1 {
+                        for x in x0..x1 {
+                            out.put_pixel(x, y, Rgba([16, 18, 25, 255]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        self.render_frame(1.0 - progress, out);
+    }
+}
+
+// ============================================================================
+// 52. VORONOI STIPPLING LLOYD RELAX
+// ============================================================================
+
+pub struct VoronoiStipplingPuzzle {
+    original: RgbaImage,
+    stipples: Vec<(f32, f32, f32)>, // (x, y, target_radius)
+}
+
+impl VoronoiStipplingPuzzle {
+    pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let count = (complexity * 25 + 100).clamp(100, 600) as usize;
+        let w = original.width() as f32;
+        let h = original.height() as f32;
+        let base_r = (w.hypot(h) / (count as f32).sqrt()) * 0.9;
+
+        let mut stipples = Vec::with_capacity(count);
+        for _ in 0..count {
+            let x = rng.gen_range(0.0..w);
+            let y = rng.gen_range(0.0..h);
+            let r = rng.gen_range(base_r * 0.7..base_r * 1.5);
+            stipples.push((x, y, r));
+        }
+
+        Self {
+            original: original.clone(),
+            stipples,
+        }
+    }
+}
+
+impl PuzzleSimulation for VoronoiStipplingPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) {
+        self.original = image.clone();
+    }
+    fn kind(&self) -> PuzzleKind {
+        PuzzleKind::VoronoiStippling
+    }
+    fn total_steps(&self) -> usize {
+        self.stipples.len()
+    }
+    fn status_label(&self, progress: f32) -> String {
+        format!("Voronoi Stippling: {:.1}% Lloyd relaxation disks converged", progress * 100.0)
+    }
+
+    fn render_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let w = self.original.width();
+        let h = self.original.height();
+
+        if progress >= 0.9999 {
+            *out = self.original.clone();
+            return;
+        }
+
+        // Parchment paper backdrop
+        for y in 0..h {
+            for x in 0..w {
+                out.put_pixel(x, y, Rgba([240, 238, 230, 255]));
+            }
+        }
+
+        let growth = progress * progress * (3.0 - 2.0 * progress);
+
+        for (sx, sy, tr) in &self.stipples {
+            let cur_r = tr * growth;
+            let ix = *sx as i32;
+            let iy = *sy as i32;
+            let r_i = cur_r.ceil() as i32;
+            let r_sq = cur_r * cur_r;
+
+            let col_x = (*sx as u32).min(w - 1);
+            let col_y = (*sy as u32).min(h - 1);
+            let color = *self.original.get_pixel(col_x, col_y);
+
+            for dy in -r_i..=r_i {
+                for dx in -r_i..=r_i {
+                    if (dx * dx + dy * dy) as f32 <= r_sq {
+                        let px = ix + dx;
+                        let py = iy + dy;
+                        if px >= 0 && px < w as i32 && py >= 0 && py < h as i32 {
+                            out.put_pixel(px as u32, py as u32, color);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Final blend into crisp original
+        if progress > 0.88 {
+            let blend = (progress - 0.88) / 0.12;
+            for y in 0..h {
+                for x in 0..w {
+                    let cur = out.get_pixel(x, y);
+                    let orig = self.original.get_pixel(x, y);
+                    let r = ((cur.0[0] as f32 * (1.0 - blend)) + (orig.0[0] as f32 * blend)) as u8;
+                    let g = ((cur.0[1] as f32 * (1.0 - blend)) + (orig.0[1] as f32 * blend)) as u8;
+                    let b = ((cur.0[2] as f32 * (1.0 - blend)) + (orig.0[2] as f32 * blend)) as u8;
+                    out.put_pixel(x, y, Rgba([r, g, b, 255]));
+                }
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        self.render_frame(1.0 - progress, out);
+    }
+}
+

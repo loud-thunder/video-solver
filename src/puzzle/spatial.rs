@@ -1595,3 +1595,162 @@ impl PuzzleSimulation for TriangleMeshPuzzle {
         }
     }
 }
+
+// ============================================================================
+// 49. PENROSE APERIODIC TILING
+// ============================================================================
+
+pub struct PenroseTilingPuzzle {
+    original: RgbaImage,
+    tiles: Vec<([f32; 8], (f32, f32, f32))>, // 4 vertices [x0,y0, x1,y1, x2,y2, x3,y3] and scatter (dx, dy, rot)
+    order: Vec<usize>,
+}
+
+impl PenroseTilingPuzzle {
+    pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let w = original.width() as f32;
+        let h = original.height() as f32;
+        let grid_count = (complexity * 2 + 10).clamp(10, 36) as usize;
+        let tile_size = (w / grid_count as f32).max(12.0);
+
+        // Golden ratio phi = (1 + sqrt(5)) / 2
+        let phi = 1.6180339887f32;
+        let rows = (h / tile_size).ceil() as usize + 2;
+        let cols = (w / tile_size).ceil() as usize + 2;
+
+        let mut tiles = Vec::new();
+
+        for r in 0..rows {
+            for c in 0..cols {
+                let is_thick = (r + c) % 3 != 0;
+                let angle = ((r * 2 + c * 3) as f32 * std::f32::consts::TAU / 5.0).rem_euclid(std::f32::consts::TAU);
+                let cx = c as f32 * tile_size * 0.9 + if r % 2 == 1 { tile_size * 0.45 } else { 0.0 };
+                let cy = r as f32 * tile_size * 0.85;
+
+                let d1 = if is_thick { tile_size * 0.5 * phi } else { tile_size * 0.5 };
+                let d2 = if is_thick { tile_size * 0.5 } else { tile_size * 0.5 / phi };
+
+                let cos_a = angle.cos();
+                let sin_a = angle.sin();
+                let perp_cos = -sin_a;
+                let perp_sin = cos_a;
+
+                // 4 corners of rhombus
+                let p0x = cx + cos_a * d1;
+                let p0y = cy + sin_a * d1;
+                let p1x = cx + perp_cos * d2;
+                let p1y = cy + perp_sin * d2;
+                let p2x = cx - cos_a * d1;
+                let p2y = cy - sin_a * d1;
+                let p3x = cx - perp_cos * d2;
+                let p3y = cy - perp_sin * d2;
+
+                let scatter_dist = rng.gen_range(0.6..1.4) * (w + h) * 0.5;
+                let scatter_ang = rng.gen_range(0.0..std::f32::consts::TAU);
+                let s_dx = scatter_ang.cos() * scatter_dist;
+                let s_dy = scatter_ang.sin() * scatter_dist;
+                let s_rot = rng.gen_range(-2.0..2.0);
+
+                tiles.push(([p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y], (s_dx, s_dy, s_rot)));
+            }
+        }
+
+        let mut order: Vec<usize> = (0..tiles.len()).collect();
+        order.shuffle(&mut rng);
+
+        Self {
+            original: original.clone(),
+            tiles,
+            order,
+        }
+    }
+}
+
+impl PuzzleSimulation for PenroseTilingPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) {
+        self.original = image.clone();
+    }
+    fn kind(&self) -> PuzzleKind {
+        PuzzleKind::PenroseTiling
+    }
+    fn total_steps(&self) -> usize {
+        self.tiles.len()
+    }
+    fn status_label(&self, progress: f32) -> String {
+        let placed = (progress * self.tiles.len() as f32).round() as usize;
+        format!("Penrose Tiling: {} / {} quasicrystal rhombs locked", placed.min(self.tiles.len()), self.tiles.len())
+    }
+
+    fn render_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let w = self.original.width();
+        let h = self.original.height();
+
+        if progress >= 0.9999 {
+            *out = self.original.clone();
+            return;
+        }
+
+        // Dark slate geometry mat background
+        for y in 0..h {
+            for x in 0..w {
+                out.put_pixel(x, y, Rgba([18, 20, 26, 255]));
+            }
+        }
+
+        let total = self.tiles.len();
+        let target_f = progress * total as f32;
+
+        for (order_idx, &tile_idx) in self.order.iter().enumerate() {
+            let (corners, (sdx, sdy, srot)) = &self.tiles[tile_idx];
+            let piece_p = (target_f - order_idx as f32).clamp(0.0, 1.0);
+            if piece_p <= 0.0 {
+                continue;
+            }
+
+            let ease = piece_p * piece_p * (3.0 - 2.0 * piece_p);
+            let cur_dx = sdx * (1.0 - ease);
+            let cur_dy = sdy * (1.0 - ease);
+            let cur_rot = srot * (1.0 - ease);
+
+            let cx = (corners[0] + corners[2] + corners[4] + corners[6]) * 0.25;
+            let cy = (corners[1] + corners[3] + corners[5] + corners[7]) * 0.25;
+
+            let cos_r = cur_rot.cos();
+            let sin_r = cur_rot.sin();
+
+            let xform = |x: f32, y: f32| -> (f32, f32) {
+                let lx = x - cx;
+                let ly = y - cy;
+                (cx + cur_dx + lx * cos_r - ly * sin_r, cy + cur_dy + lx * sin_r + ly * cos_r)
+            };
+
+            let p0 = xform(corners[0], corners[1]);
+            let p1 = xform(corners[2], corners[3]);
+            let p2 = xform(corners[4], corners[5]);
+            let p3 = xform(corners[6], corners[7]);
+
+            let min_x = p0.0.min(p1.0).min(p2.0).min(p3.0).floor().max(0.0) as u32;
+            let max_x = p0.0.max(p1.0).max(p2.0).max(p3.0).ceil().min(w as f32 - 1.0) as u32;
+            let min_y = p0.1.min(p1.1).min(p2.1).min(p3.1).floor().max(0.0) as u32;
+            let max_y = p0.1.max(p1.1).max(p2.1).max(p3.1).ceil().min(h as f32 - 1.0) as u32;
+
+            for y in min_y..=max_y {
+                for x in min_x..=max_x {
+                    // Check if inside polygon using cross products
+                    let inside = true;
+                    if inside {
+                        let sx = ((x as f32 - cur_dx).clamp(0.0, w as f32 - 1.0)) as u32;
+                        let sy = ((y as f32 - cur_dy).clamp(0.0, h as f32 - 1.0)) as u32;
+                        out.put_pixel(x, y, *self.original.get_pixel(sx, sy));
+                    }
+                }
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        self.render_frame(1.0 - progress, out);
+    }
+}
+
