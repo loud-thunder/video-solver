@@ -152,8 +152,11 @@ fn export_mp4(
             bail!("Export cancelled by user");
         }
 
-        let p = timing.progress_at_frame(f);
-        sim.render_frame(p, &mut frame_buf);
+        match timing.playback_state_at_frame(f) {
+            crate::puzzle::PlaybackPhase::Solve(p) => sim.render_frame(p, &mut frame_buf),
+            crate::puzzle::PlaybackPhase::Hold => sim.render_frame(1.0, &mut frame_buf),
+            crate::puzzle::PlaybackPhase::Rollback(p) => sim.render_rollback_frame(p, &mut frame_buf),
+        }
 
         if let Err(e) = stdin.write_all(frame_buf.as_raw()) {
             bail!("Failed to write frame to ffmpeg: {}", e);
@@ -195,8 +198,11 @@ fn export_gif(
             bail!("Export cancelled by user");
         }
 
-        let p = timing.progress_at_frame(f);
-        sim.render_frame(p, &mut frame_buf);
+        match timing.playback_state_at_frame(f) {
+            crate::puzzle::PlaybackPhase::Solve(p) => sim.render_frame(p, &mut frame_buf),
+            crate::puzzle::PlaybackPhase::Hold => sim.render_frame(1.0, &mut frame_buf),
+            crate::puzzle::PlaybackPhase::Rollback(p) => sim.render_rollback_frame(p, &mut frame_buf),
+        }
 
         // Convert RGBA to GIF frame with palette
         let mut pixels = frame_buf.as_raw().clone();

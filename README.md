@@ -12,9 +12,13 @@ A native Rust desktop application and CLI tool that converts any input image int
   - Category filters and dropdown selector for all 22 puzzles.
   - Interactive sliders for Puzzle Complexity (`1..=20`) with "Auto-scale step density for long videos" toggle.
   - Random Seed generator.
-  - Video Duration slider up to **7 minutes (420.0s)** with `M:SS` formatting and quick presets: `[30s]`, `[1m]`, `[3m]`, `[5m]`, `[7m]`.
+  - Video Duration slider & exact text input up to **7 minutes (420.0s)** with unrounded precision (supports `M:SS`, `MM:SS`, `5:57`, `5:57.5`, raw seconds `357`), and quick presets: `[30s]`, `[1m]`, `[3m]`, `[5m]`, `[7m]`.
+  - **3-Phase Seamless Roll-Back Loop Mode**:
+    - Optional toggle that solves the puzzle (45% duration), holds the solved image (10% duration), and then rolls back to the initial scrambled state via a novel route (45% duration).
+    - Novel roll-back routes: center-out disassembly, parabolic loft flight arcs, secondary centrifugal spins, and reverse-order un-sorting animations (not simple frame-reversed video).
+    - Final frame lands exactly on the initial scrambled frame for a seamless infinite video loop.
   - Solved Hold Duration slider (`0.0s..10.0s`), FPS (`30` / `60`), and Easing Curves (`Linear`, `Ease-In-Out`, `Accelerate`, `Decelerate`).
-  - Live Solve Rate readout calculating the exact rate in `moves / second` based on the specified duration.
+  - Live Solve Rate readout calculating the exact rate in `moves / second` based on the specified duration and active loop mode.
   - Single-click video export for `.mp4` (H.264), animated `.gif` (for videos $\le 1 \text{ min}$), or **Batch Export All 22 Puzzles**.
   - Built-in procedural image generators (Vibrant Mandala, Cyber Grid, Sunset Waves, Bauhaus Geometric) plus native file picker dialog for custom images (`PNG`, `JPG`, `WEBP`, `BMP`).
 
@@ -79,9 +83,10 @@ cargo run --release -- --cli --duration 7:00 --complexity 12 --puzzle "Classic J
 Options:
 - `--input <path>`: Path to image file (optional, defaults to procedural Mandala).
 - `--output <path>`: Target `.mp4` or `.gif` path (defaults to `puzzle_output.mp4`).
-- `--duration <sec or M:SS>`: Total video duration up to 7 minutes (e.g. `420` or `7:00`).
+- `--duration <sec or M:SS>`: Total video duration up to 7 minutes (e.g. `5:57`, `420`, or `7:00`).
 - `--complexity <1-20>`: Puzzle complexity scale (e.g. `12`).
 - `--puzzle <name or 1-22>`: Puzzle name substring or index `1..=22`.
+- `--rollback`: Enable 3-phase roll-back loop (solve -> hold -> novel roll-back route).
 
 ### 3. Automated Verification Suite
 ```bash

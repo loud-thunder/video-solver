@@ -100,6 +100,53 @@ impl PuzzleSimulation for SwirlVortexPuzzle {
             *out = buf;
         }
     }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let ease = progress * progress * (3.0 - 2.0 * progress);
+        let ripple = progress * (1.0 - progress) * 2.5;
+
+        let raw_pixels: Vec<u8> = (0..h)
+            .into_par_iter()
+            .flat_map(|y| {
+                let mut row = Vec::with_capacity(w as usize * 4);
+                let py = y as f32;
+                for x in 0..w {
+                    let mut cur_x = x as f32;
+                    let mut cur_y = py;
+
+                    for &(cx, cy, radius, max_ang) in &self.centers {
+                        let dx = cur_x - cx;
+                        let dy = cur_y - cy;
+                        let r = (dx * dx + dy * dy).sqrt();
+
+                        if r < radius {
+                            let factor = 1.0 - (r / radius);
+                            let theta = factor * factor * max_ang * ease + ripple * factor;
+                            let cos_t = theta.cos();
+                            let sin_t = theta.sin();
+                            cur_x = cx + dx * cos_t - dy * sin_t;
+                            cur_y = cy + dx * sin_t + dy * cos_t;
+                        }
+                    }
+
+                    let color = drawing::sample_bilinear(&self.original, cur_x, cur_y);
+                    row.extend_from_slice(&color.0);
+                }
+                row
+            })
+            .collect();
+
+        if let Some(buf) = RgbaImage::from_raw(w, h, raw_pixels) {
+            *out = buf;
+        }
+    }
 }
 
 // ============================================================================
@@ -191,6 +238,54 @@ impl PuzzleSimulation for WavePhaseAlignPuzzle {
             *out = buf;
         }
     }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let total = self.total_steps();
+        let target_f = progress * total as f32;
+
+        let raw_pixels: Vec<u8> = (0..h)
+            .into_par_iter()
+            .flat_map(|y| {
+                let mut row = Vec::with_capacity(w as usize * 4);
+                let py = y as f32;
+                for x in 0..w {
+                    let px = x as f32;
+                    let mut off_x = 0.0;
+                    let mut off_y = 0.0;
+
+                    for (idx, &(freq, amp, phase, is_x)) in self.harmonics.iter().enumerate() {
+                        let rev_idx = total - 1 - idx;
+                        let harm_p = (target_f - rev_idx as f32).clamp(0.0, 1.0);
+                        let ease = harm_p * harm_p * (3.0 - 2.0 * harm_p);
+                        let dynamic_phase = phase + (harm_p * (1.0 - harm_p) * 2.0);
+
+                        if is_x {
+                            off_x += (py * freq + dynamic_phase).sin() * amp * ease;
+                        } else {
+                            off_y += (px * freq + dynamic_phase).sin() * amp * ease;
+                        }
+                    }
+
+                    let sx = px + off_x;
+                    let sy = py + off_y;
+                    let color = drawing::sample_bilinear(&self.original, sx, sy);
+                    row.extend_from_slice(&color.0);
+                }
+                row
+            })
+            .collect();
+
+        if let Some(buf) = RgbaImage::from_raw(w, h, raw_pixels) {
+            *out = buf;
+        }
+    }
 }
 
 // ============================================================================
@@ -249,6 +344,59 @@ impl PuzzleSimulation for KaleidoscopePuzzle {
                     let theta = dy.atan2(dx).rem_euclid(std::f32::consts::TAU);
 
                     // Mirror within sector
+                    let sector = (theta / sector_angle).floor();
+                    let mut local_theta = theta - sector * sector_angle;
+                    if sector as i32 % 2 == 1 {
+                        local_theta = sector_angle - local_theta;
+                    }
+
+                    let k_x = cx + r * local_theta.cos();
+                    let k_y = cy + r * local_theta.sin();
+
+                    let k_color = drawing::sample_bilinear(&self.original, k_x, k_y);
+                    let orig_color = *self.original.get_pixel(x, y);
+
+                    let mut blended = [0u8; 4];
+                    for c in 0..3 {
+                        let v = k_color.0[c] as f32 * (1.0 - blend) + orig_color.0[c] as f32 * blend;
+                        blended[c] = v.round() as u8;
+                    }
+                    blended[3] = 255;
+
+                    row.extend_from_slice(&blended);
+                }
+                row
+            })
+            .collect();
+
+        if let Some(buf) = RgbaImage::from_raw(w, h, raw_pixels) {
+            *out = buf;
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let cx = w as f32 * 0.5;
+        let cy = h as f32 * 0.5;
+        let sector_angle = std::f32::consts::TAU / self.folds as f32;
+        let blend = 1.0 - (progress * progress * (3.0 - 2.0 * progress));
+
+        let raw_pixels: Vec<u8> = (0..h)
+            .into_par_iter()
+            .flat_map(|y| {
+                let mut row = Vec::with_capacity(w as usize * 4);
+                let dy = y as f32 - cy;
+                for x in 0..w {
+                    let dx = x as f32 - cx;
+                    let r = (dx * dx + dy * dy).sqrt();
+                    let theta = dy.atan2(dx).rem_euclid(std::f32::consts::TAU);
+
                     let sector = (theta / sector_angle).floor();
                     let mut local_theta = theta - sector * sector_angle;
                     if sector as i32 % 2 == 1 {
@@ -367,6 +515,46 @@ impl PuzzleSimulation for ChromaticGlitchPuzzle {
             *out = buf;
         }
     }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let glitch_factor = progress * progress * (3.0 - 2.0 * progress);
+        let flare = progress * (1.0 - progress) * 1.5;
+        let aber = self.max_aberration * (glitch_factor + flare);
+
+        let raw_pixels: Vec<u8> = (0..h)
+            .into_par_iter()
+            .flat_map(|y| {
+                let mut row = Vec::with_capacity(w as usize * 4);
+                let line_shift = self.scanline_shifts[y as usize] * glitch_factor;
+                let py = y as f32;
+
+                for x in 0..w {
+                    let px = x as f32 + line_shift;
+
+                    let r_color = drawing::sample_bilinear(&self.original, px - aber, py);
+                    let g_color = drawing::sample_bilinear(&self.original, px, py);
+                    let b_color = drawing::sample_bilinear(&self.original, px + aber, py);
+
+                    row.push(r_color.0[0]);
+                    row.push(g_color.0[1]);
+                    row.push(b_color.0[2]);
+                    row.push(255);
+                }
+                row
+            })
+            .collect();
+
+        if let Some(buf) = RgbaImage::from_raw(w, h, raw_pixels) {
+            *out = buf;
+        }
+    }
 }
 
 // ============================================================================
@@ -410,6 +598,45 @@ impl PuzzleSimulation for MosaicCoalescePuzzle {
         let w = self.original.width();
         let h = self.original.height();
         let ease = 1.0 - (progress * progress * (3.0 - 2.0 * progress));
+        let cur_block = (self.initial_block_size as f32 * ease).round() as u32;
+
+        if cur_block <= 1 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let raw_pixels: Vec<u8> = (0..h)
+            .into_par_iter()
+            .flat_map(|y| {
+                let mut row = Vec::with_capacity(w as usize * 4);
+                let block_y0 = (y / cur_block) * cur_block;
+                let sample_y = (block_y0 + cur_block / 2).min(h - 1);
+
+                for x in 0..w {
+                    let block_x0 = (x / cur_block) * cur_block;
+                    let sample_x = (block_x0 + cur_block / 2).min(w - 1);
+
+                    let c = self.original.get_pixel(sample_x, sample_y);
+                    row.extend_from_slice(&c.0);
+                }
+                row
+            })
+            .collect();
+
+        if let Some(buf) = RgbaImage::from_raw(w, h, raw_pixels) {
+            *out = buf;
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let ease = progress * progress * (3.0 - 2.0 * progress);
         let cur_block = (self.initial_block_size as f32 * ease).round() as u32;
 
         if cur_block <= 1 {
