@@ -1,4 +1,4 @@
-use image::RgbaImage;
+use image::{Rgba, RgbaImage};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
@@ -672,3 +672,377 @@ impl PuzzleSimulation for MosaicCoalescePuzzle {
         }
     }
 }
+
+// ============================================================================
+// 45. FOURIER 2D SPECTRAL SYNTHESIS
+// ============================================================================
+
+pub struct FourierSynthesisPuzzle {
+    original: RgbaImage,
+    bands: usize,
+}
+
+impl FourierSynthesisPuzzle {
+    pub fn new(original: &RgbaImage, complexity: u32, _seed: u64) -> Self {
+        let bands = (complexity as usize * 2 + 8).clamp(8, 32);
+        Self {
+            original: original.clone(),
+            bands,
+        }
+    }
+}
+
+impl PuzzleSimulation for FourierSynthesisPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) {
+        self.original = image.clone();
+    }
+    fn kind(&self) -> PuzzleKind {
+        PuzzleKind::FourierSynthesis
+    }
+    fn total_steps(&self) -> usize {
+        self.bands
+    }
+    fn status_label(&self, progress: f32) -> String {
+        let cur_band = (progress * self.bands as f32).floor() as usize;
+        format!("Fourier Synthesis: Band {} / {} harmonic frequencies summed", cur_band.min(self.bands), self.bands)
+    }
+
+    fn render_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let w = self.original.width();
+        let h = self.original.height();
+
+        if progress >= 0.9999 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let blend = progress * progress * (3.0 - 2.0 * progress);
+        let max_freq = 1.0 + progress * self.bands as f32;
+
+        let raw_pixels: Vec<u8> = (0..h)
+            .into_par_iter()
+            .flat_map(|y| {
+                let mut row = Vec::with_capacity(w as usize * 4);
+                let fy = y as f32;
+                for x in 0..w {
+                    let fx = x as f32;
+
+                    // Low-pass blur approximation by pooling neighborhood based on frequency band
+                    let filter_radius = ((1.0 - progress) * 24.0).max(0.0);
+                    let mut r_acc = 0u32;
+                    let mut g_acc = 0u32;
+                    let mut b_acc = 0u32;
+                    let mut count = 0u32;
+
+                    let step = (filter_radius * 0.5).max(1.0) as i32;
+                    let fr_i = filter_radius as i32;
+
+                    for dy in (-fr_i..=fr_i).step_by(step as usize) {
+                        let sy = (y as i32 + dy).clamp(0, h as i32 - 1) as u32;
+                        for dx in (-fr_i..=fr_i).step_by(step as usize) {
+                            let sx = (x as i32 + dx).clamp(0, w as i32 - 1) as u32;
+                            let px = self.original.get_pixel(sx, sy);
+                            r_acc += px.0[0] as u32;
+                            g_acc += px.0[1] as u32;
+                            b_acc += px.0[2] as u32;
+                            count += 1;
+                        }
+                    }
+
+                    let low_r = (r_acc / count) as u8;
+                    let low_g = (g_acc / count) as u8;
+                    let low_b = (b_acc / count) as u8;
+
+                    // Add subtle spatial harmonic oscillation
+                    let harmonic = ((fx * 0.05 * max_freq).sin() * (fy * 0.05 * max_freq).cos() * 15.0 * (1.0 - progress)) as i16;
+
+                    let orig = self.original.get_pixel(x, y);
+                    let final_r = ((orig.0[0] as f32 * blend) + ((low_r as i16 + harmonic).clamp(0, 255) as f32 * (1.0 - blend))) as u8;
+                    let final_g = ((orig.0[1] as f32 * blend) + ((low_g as i16 + harmonic).clamp(0, 255) as f32 * (1.0 - blend))) as u8;
+                    let final_b = ((orig.0[2] as f32 * blend) + ((low_b as i16 + harmonic).clamp(0, 255) as f32 * (1.0 - blend))) as u8;
+
+                    row.push(final_r);
+                    row.push(final_g);
+                    row.push(final_b);
+                    row.push(255);
+                }
+                row
+            })
+            .collect();
+
+        if let Some(buf) = RgbaImage::from_raw(w, h, raw_pixels) {
+            *out = buf;
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        self.render_frame(1.0 - progress, out);
+    }
+}
+
+// ============================================================================
+// 46. POLAR COORDINATE UNROLL
+// ============================================================================
+
+pub struct PolarUnrollPuzzle {
+    original: RgbaImage,
+}
+
+impl PolarUnrollPuzzle {
+    pub fn new(original: &RgbaImage, _complexity: u32, _seed: u64) -> Self {
+        Self {
+            original: original.clone(),
+        }
+    }
+}
+
+impl PuzzleSimulation for PolarUnrollPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) {
+        self.original = image.clone();
+    }
+    fn kind(&self) -> PuzzleKind {
+        PuzzleKind::PolarUnroll
+    }
+    fn total_steps(&self) -> usize {
+        100
+    }
+    fn status_label(&self, progress: f32) -> String {
+        format!("Polar Unroll: {:.1}% unwrapped to Cartesian plane", progress * 100.0)
+    }
+
+    fn render_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let w = self.original.width();
+        let h = self.original.height();
+
+        if progress >= 0.9999 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let t = 1.0 - progress;
+        let cx = w as f32 * 0.5;
+        let cy = h as f32 * 0.5;
+        let max_r = ((w as f32).hypot(h as f32) * 0.5).max(10.0);
+
+        let raw_pixels: Vec<u8> = (0..h)
+            .into_par_iter()
+            .flat_map(|y| {
+                let mut row = Vec::with_capacity(w as usize * 4);
+                let fy = y as f32;
+                for x in 0..w {
+                    let fx = x as f32;
+
+                    // Polar mapping: angle in [0, 2pi], radius in [0, max_r]
+                    let angle = (fx / w as f32) * std::f32::consts::TAU;
+                    let radius = (fy / h as f32) * max_r;
+
+                    let polar_x = cx + angle.cos() * radius;
+                    let polar_y = cy + angle.sin() * radius;
+
+                    // Blend between Cartesian (fx, fy) and Polar (polar_x, polar_y)
+                    let src_x = fx * (1.0 - t) + polar_x * t;
+                    let src_y = fy * (1.0 - t) + polar_y * t;
+
+                    let color = drawing::sample_bilinear(&self.original, src_x, src_y);
+                    row.extend_from_slice(&color.0);
+                }
+                row
+            })
+            .collect();
+
+        if let Some(buf) = RgbaImage::from_raw(w, h, raw_pixels) {
+            *out = buf;
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        self.render_frame(1.0 - progress, out);
+    }
+}
+
+// ============================================================================
+// 47. MOIRE FRINGE ALIGNMENT
+// ============================================================================
+
+pub struct MoireInterferencePuzzle {
+    original: RgbaImage,
+    line_spacing: f32,
+    max_angle: f32,
+}
+
+impl MoireInterferencePuzzle {
+    pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let line_spacing = (complexity as f32 * 0.3 + 4.0).clamp(4.0, 14.0);
+        let max_angle = rng.gen_range(0.3..0.8);
+
+        Self {
+            original: original.clone(),
+            line_spacing,
+            max_angle,
+        }
+    }
+}
+
+impl PuzzleSimulation for MoireInterferencePuzzle {
+    fn update_source(&mut self, image: &RgbaImage) {
+        self.original = image.clone();
+    }
+    fn kind(&self) -> PuzzleKind {
+        PuzzleKind::MoireInterference
+    }
+    fn total_steps(&self) -> usize {
+        100
+    }
+    fn status_label(&self, progress: f32) -> String {
+        format!("Moiré Alignment: Grating interference angle {:.1}°", (1.0 - progress) * self.max_angle.to_degrees())
+    }
+
+    fn render_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let w = self.original.width();
+        let h = self.original.height();
+
+        if progress >= 0.9999 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let angle = self.max_angle * (1.0 - progress);
+        let cos_a = angle.cos();
+        let sin_a = angle.sin();
+        let spacing = self.line_spacing;
+        let opacity = 1.0 - progress;
+
+        for y in 0..h {
+            let fy = y as f32;
+            for x in 0..w {
+                let fx = x as f32;
+
+                // Two overlapping grating patterns
+                let g1 = ((fx / spacing) * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+                let rot_x = fx * cos_a - fy * sin_a;
+                let g2 = ((rot_x / spacing) * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+
+                let moire = g1 * g2; // non-linear interference fringe
+                let shade = 1.0 - (1.0 - moire) * 0.65 * opacity;
+
+                let orig = self.original.get_pixel(x, y);
+                let r = (orig.0[0] as f32 * shade) as u8;
+                let g = (orig.0[1] as f32 * shade) as u8;
+                let b = (orig.0[2] as f32 * shade) as u8;
+
+                out.put_pixel(x, y, Rgba([r, g, b, 255]));
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        self.render_frame(1.0 - progress, out);
+    }
+}
+
+// ============================================================================
+// 48. CONCENTRIC WATER RIPPLES
+// ============================================================================
+
+pub struct WaterRipplesPuzzle {
+    original: RgbaImage,
+    droplet_centers: Vec<(f32, f32, f32)>, // (x, y, start_delay)
+}
+
+impl WaterRipplesPuzzle {
+    pub fn new(original: &RgbaImage, complexity: u32, seed: u64) -> Self {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let count = (complexity / 2 + 3).clamp(3, 10) as usize;
+        let w = original.width() as f32;
+        let h = original.height() as f32;
+
+        let mut droplet_centers = Vec::with_capacity(count);
+        for _ in 0..count {
+            let cx = rng.gen_range(0.15..0.85) * w;
+            let cy = rng.gen_range(0.15..0.85) * h;
+            let delay = rng.gen_range(0.0..0.4);
+            droplet_centers.push((cx, cy, delay));
+        }
+
+        Self {
+            original: original.clone(),
+            droplet_centers,
+        }
+    }
+}
+
+impl PuzzleSimulation for WaterRipplesPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) {
+        self.original = image.clone();
+    }
+    fn kind(&self) -> PuzzleKind {
+        PuzzleKind::WaterRipples
+    }
+    fn total_steps(&self) -> usize {
+        self.droplet_centers.len() * 15
+    }
+    fn status_label(&self, progress: f32) -> String {
+        format!("Water Ripples: Wave dissipation {:.1}%", progress * 100.0)
+    }
+
+    fn render_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let w = self.original.width();
+        let h = self.original.height();
+
+        if progress >= 0.9999 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let decay = 1.0 - progress;
+
+        for y in 0..h {
+            let fy = y as f32;
+            for x in 0..w {
+                let fx = x as f32;
+
+                let mut total_disp_x = 0.0f32;
+                let mut total_disp_y = 0.0f32;
+
+                for (cx, cy, delay) in &self.droplet_centers {
+                    let local_t = (progress - delay).max(0.0);
+                    let dx = fx - cx;
+                    let dy = fy - cy;
+                    let r = (dx * dx + dy * dy).sqrt();
+
+                    let wave_speed = 350.0;
+                    let wavefront = local_t * wave_speed;
+                    let dist_to_wave = r - wavefront;
+
+                    if dist_to_wave.abs() < 60.0 {
+                        let envelope = (1.0 - dist_to_wave.abs() / 60.0) * decay;
+                        let wave_val = (dist_to_wave * 0.25).sin() * envelope * 18.0;
+                        if r > 1.0 {
+                            total_disp_x += (dx / r) * wave_val;
+                            total_disp_y += (dy / r) * wave_val;
+                        }
+                    }
+                }
+
+                let src_x = fx + total_disp_x;
+                let src_y = fy + total_disp_y;
+
+                let mut color = drawing::sample_bilinear(&self.original, src_x, src_y);
+                // Highlight ripple specular gleam
+                if (total_disp_x.abs() + total_disp_y.abs()) > 8.0 && decay > 0.1 {
+                    color.0[0] = color.0[0].saturating_add(30);
+                    color.0[1] = color.0[1].saturating_add(40);
+                    color.0[2] = color.0[2].saturating_add(55);
+                }
+
+                out.put_pixel(x, y, color);
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        self.render_frame(1.0 - progress, out);
+    }
+}
+

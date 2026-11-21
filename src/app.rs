@@ -230,7 +230,7 @@ impl VideoSolverApp {
         });
 
         self.active_export = Some((progress, handle));
-        self.export_message = Some((format!("Batch exporting all 22 puzzles to {}...", folder.display()), false));
+        self.export_message = Some((format!("Batch exporting all 52 puzzles to {}...", folder.display()), false));
     }
 }
 
@@ -276,7 +276,7 @@ impl eframe::App for VideoSolverApp {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.heading(RichText::new("🎬 Video Solver Studio").strong().color(Color32::from_rgb(90, 180, 255)));
-                ui.label(RichText::new("• 22 Algorithmic & Spatial Image/Video Puzzles").italics());
+                ui.label(RichText::new("• 52 Algorithmic & Spatial Image/Video Puzzles").italics());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if self.ffmpeg_available {
@@ -406,11 +406,11 @@ impl eframe::App for VideoSolverApp {
 
                     // SECTION 2: Puzzle Type & Configuration
                     ui.group(|ui| {
-                        ui.heading("🧩 Puzzle Selector (22 Types)");
+                        ui.heading("🧩 Puzzle Selector (52 Types)");
 
                         // Category filter buttons
                         ui.horizontal_wrapped(|ui| {
-                            if ui.selectable_label(self.category_filter.is_none(), "All (22)").clicked() {
+                            if ui.selectable_label(self.category_filter.is_none(), "All (52)").clicked() {
                                 self.category_filter = None;
                             }
                             for cat in PuzzleCategory::all() {
@@ -630,7 +630,7 @@ impl eframe::App for VideoSolverApp {
 
                         let batch_btn = ui.add_enabled(
                             !is_exporting && self.ffmpeg_available,
-                            egui::Button::new("📦 Batch Export All 22 Puzzles...")
+                            egui::Button::new("📦 Batch Export All 52 Puzzles...")
                         );
                         if batch_btn.clicked() {
                             if let Some(folder) = rfd::FileDialog::new().pick_folder() {

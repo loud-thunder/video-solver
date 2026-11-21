@@ -1,5 +1,7 @@
+pub mod automata;
 pub mod drawing;
 pub mod path_logic;
+pub mod physics;
 pub mod sorting;
 pub mod spatial;
 pub mod transform;
@@ -12,6 +14,8 @@ pub enum PuzzleCategory {
     SortingAndAlgorithmic,
     TransformAndSignal,
     PathAndLogic,
+    PhysicsAndDynamics,
+    CellularAndAutomata,
 }
 
 impl PuzzleCategory {
@@ -21,6 +25,8 @@ impl PuzzleCategory {
             PuzzleCategory::SortingAndAlgorithmic,
             PuzzleCategory::TransformAndSignal,
             PuzzleCategory::PathAndLogic,
+            PuzzleCategory::PhysicsAndDynamics,
+            PuzzleCategory::CellularAndAutomata,
         ]
     }
 
@@ -30,13 +36,15 @@ impl PuzzleCategory {
             PuzzleCategory::SortingAndAlgorithmic => "Sorting & Algorithmic",
             PuzzleCategory::TransformAndSignal => "Transform & Signal",
             PuzzleCategory::PathAndLogic => "Path & Logic Reveal",
+            PuzzleCategory::PhysicsAndDynamics => "Physics & Particle Dynamics",
+            PuzzleCategory::CellularAndAutomata => "Cellular & Mathematical Automata",
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PuzzleKind {
-    // 1. Spatial & Tile (8)
+    // 1. Spatial & Tile (9)
     JigsawClassic,
     SlidingGrid,
     TileSwap,
@@ -45,31 +53,65 @@ pub enum PuzzleKind {
     ToroidalShift,
     HexHoneycomb,
     TriangleMesh,
+    PenroseTiling,
 
-    // 2. Sorting & Algorithmic (4)
+    // 2. Sorting & Algorithmic (9)
     StripSort,
     HilbertCurveSort,
     VoronoiShards,
     QuadtreeUnfold,
+    RadixSort,
+    HeapSort,
+    MergeSort,
+    PeanoCurve,
+    BitonicSort,
 
-    // 3. Transform & Signal (5)
+    // 3. Transform & Signal (9)
     SwirlVortex,
     WavePhaseAlign,
     KaleidoscopeUnfold,
     ChromaticGlitch,
     MosaicCoalesce,
+    FourierSynthesis,
+    PolarUnroll,
+    MoireInterference,
+    WaterRipples,
 
-    // 4. Path & Logic Reveal (5)
+    // 4. Path & Logic Reveal (8)
     MazeSolver,
     NonogramFill,
     DelaunayMesh,
     ScratchReveal,
     ColorByNumber,
+    TSPTour,
+    DijkstraWave,
+    VoronoiStippling,
+
+    // 5. Physics & Particle Dynamics (9)
+    SandFlow,
+    FluidDroplets,
+    GravityLens,
+    Ferrofluid,
+    ClothUnfurl,
+    BubbleRaft,
+    BoidFlock,
+    PachinkoDrop,
+    JellyLattice,
+
+    // 6. Cellular & Mathematical Automata (8)
+    ConwayLife,
+    LangtonsAnt,
+    ReactionDiffusion,
+    MandelbrotFractal,
+    LSystemBloom,
+    ForestFire,
+    Wireworld,
+    CyclicAutomaton,
 }
 
 impl PuzzleKind {
-    pub const ALL: [PuzzleKind; 22] = [
-        // Spatial (8)
+    pub const ALL: [PuzzleKind; 52] = [
+        // Spatial & Tile (8)
         PuzzleKind::JigsawClassic,
         PuzzleKind::SlidingGrid,
         PuzzleKind::TileSwap,
@@ -78,12 +120,12 @@ impl PuzzleKind {
         PuzzleKind::ToroidalShift,
         PuzzleKind::HexHoneycomb,
         PuzzleKind::TriangleMesh,
-        // Sorting (4)
+        // Sorting & Algorithmic (4)
         PuzzleKind::StripSort,
         PuzzleKind::HilbertCurveSort,
         PuzzleKind::VoronoiShards,
         PuzzleKind::QuadtreeUnfold,
-        // Transform (5)
+        // Transform & Signal (5)
         PuzzleKind::SwirlVortex,
         PuzzleKind::WavePhaseAlign,
         PuzzleKind::KaleidoscopeUnfold,
@@ -95,6 +137,48 @@ impl PuzzleKind {
         PuzzleKind::DelaunayMesh,
         PuzzleKind::ScratchReveal,
         PuzzleKind::ColorByNumber,
+
+        // Physics & Particle Dynamics (9)
+        PuzzleKind::SandFlow,
+        PuzzleKind::FluidDroplets,
+        PuzzleKind::GravityLens,
+        PuzzleKind::Ferrofluid,
+        PuzzleKind::ClothUnfurl,
+        PuzzleKind::BubbleRaft,
+        PuzzleKind::BoidFlock,
+        PuzzleKind::PachinkoDrop,
+        PuzzleKind::JellyLattice,
+
+        // Cellular & Mathematical Automata (8)
+        PuzzleKind::ConwayLife,
+        PuzzleKind::LangtonsAnt,
+        PuzzleKind::ReactionDiffusion,
+        PuzzleKind::MandelbrotFractal,
+        PuzzleKind::LSystemBloom,
+        PuzzleKind::ForestFire,
+        PuzzleKind::Wireworld,
+        PuzzleKind::CyclicAutomaton,
+
+        // Sorting (5)
+        PuzzleKind::RadixSort,
+        PuzzleKind::HeapSort,
+        PuzzleKind::MergeSort,
+        PuzzleKind::PeanoCurve,
+        PuzzleKind::BitonicSort,
+
+        // Transform (4)
+        PuzzleKind::FourierSynthesis,
+        PuzzleKind::PolarUnroll,
+        PuzzleKind::MoireInterference,
+        PuzzleKind::WaterRipples,
+
+        // Spatial (1)
+        PuzzleKind::PenroseTiling,
+
+        // Path & Logic (3)
+        PuzzleKind::TSPTour,
+        PuzzleKind::DijkstraWave,
+        PuzzleKind::VoronoiStippling,
     ];
 
     pub fn name(&self) -> &'static str {
@@ -124,6 +208,42 @@ impl PuzzleKind {
             PuzzleKind::DelaunayMesh => "20. Delaunay Triangulation",
             PuzzleKind::ScratchReveal => "21. Scratch-Off Foil Brush",
             PuzzleKind::ColorByNumber => "22. Color-by-Number Flood Fill",
+
+            PuzzleKind::SandFlow => "23. Falling Sand Grain Flow",
+            PuzzleKind::FluidDroplets => "24. Viscous Fluid Droplets",
+            PuzzleKind::GravityLens => "25. Gravitational Lensing Vortex",
+            PuzzleKind::Ferrofluid => "26. Magnetic Ferrofluid Spikes",
+            PuzzleKind::ClothUnfurl => "27. Fabric & Cloth Unfurl",
+            PuzzleKind::BubbleRaft => "28. Bubble Raft Coalescence",
+            PuzzleKind::BoidFlock => "29. Boids Flocking Swarm",
+            PuzzleKind::PachinkoDrop => "30. Pachinko Peg Drop",
+            PuzzleKind::JellyLattice => "31. Jelly Spring Lattice",
+
+            PuzzleKind::ConwayLife => "32. Conway's Game of Life",
+            PuzzleKind::LangtonsAnt => "33. Langton's Ant Highway",
+            PuzzleKind::ReactionDiffusion => "34. Reaction-Diffusion Turing Waves",
+            PuzzleKind::MandelbrotFractal => "35. Mandelbrot Iteration Dissolve",
+            PuzzleKind::LSystemBloom => "36. L-System Botanical Bloom",
+            PuzzleKind::ForestFire => "37. Forest Fire Percolation",
+            PuzzleKind::Wireworld => "38. Wireworld Logic Pulses",
+            PuzzleKind::CyclicAutomaton => "39. Cyclic Cellular Automaton",
+
+            PuzzleKind::RadixSort => "40. Radix LSD Color Sort",
+            PuzzleKind::HeapSort => "41. Binary Max-Heap Sift",
+            PuzzleKind::MergeSort => "42. Merge Sort Recursive Zip",
+            PuzzleKind::PeanoCurve => "43. Peano Space-Filling Curve",
+            PuzzleKind::BitonicSort => "44. Bitonic Sorting Network",
+
+            PuzzleKind::FourierSynthesis => "45. Fourier 2D Spectral Synthesis",
+            PuzzleKind::PolarUnroll => "46. Polar Coordinate Unroll",
+            PuzzleKind::MoireInterference => "47. Moiré Fringe Alignment",
+            PuzzleKind::WaterRipples => "48. Concentric Water Ripples",
+
+            PuzzleKind::PenroseTiling => "49. Penrose Aperiodic Tiling",
+
+            PuzzleKind::TSPTour => "50. Traveling Salesperson Tour",
+            PuzzleKind::DijkstraWave => "51. A* Dijkstra Cost Wavefront",
+            PuzzleKind::VoronoiStippling => "52. Voronoi Stippling Lloyd Relax",
         }
     }
 
@@ -136,24 +256,56 @@ impl PuzzleKind {
             | PuzzleKind::RotatingRings
             | PuzzleKind::ToroidalShift
             | PuzzleKind::HexHoneycomb
-            | PuzzleKind::TriangleMesh => PuzzleCategory::SpatialAndTile,
+            | PuzzleKind::TriangleMesh
+            | PuzzleKind::PenroseTiling => PuzzleCategory::SpatialAndTile,
 
             PuzzleKind::StripSort
             | PuzzleKind::HilbertCurveSort
             | PuzzleKind::VoronoiShards
-            | PuzzleKind::QuadtreeUnfold => PuzzleCategory::SortingAndAlgorithmic,
+            | PuzzleKind::QuadtreeUnfold
+            | PuzzleKind::RadixSort
+            | PuzzleKind::HeapSort
+            | PuzzleKind::MergeSort
+            | PuzzleKind::PeanoCurve
+            | PuzzleKind::BitonicSort => PuzzleCategory::SortingAndAlgorithmic,
 
             PuzzleKind::SwirlVortex
             | PuzzleKind::WavePhaseAlign
             | PuzzleKind::KaleidoscopeUnfold
             | PuzzleKind::ChromaticGlitch
-            | PuzzleKind::MosaicCoalesce => PuzzleCategory::TransformAndSignal,
+            | PuzzleKind::MosaicCoalesce
+            | PuzzleKind::FourierSynthesis
+            | PuzzleKind::PolarUnroll
+            | PuzzleKind::MoireInterference
+            | PuzzleKind::WaterRipples => PuzzleCategory::TransformAndSignal,
 
             PuzzleKind::MazeSolver
             | PuzzleKind::NonogramFill
             | PuzzleKind::DelaunayMesh
             | PuzzleKind::ScratchReveal
-            | PuzzleKind::ColorByNumber => PuzzleCategory::PathAndLogic,
+            | PuzzleKind::ColorByNumber
+            | PuzzleKind::TSPTour
+            | PuzzleKind::DijkstraWave
+            | PuzzleKind::VoronoiStippling => PuzzleCategory::PathAndLogic,
+
+            PuzzleKind::SandFlow
+            | PuzzleKind::FluidDroplets
+            | PuzzleKind::GravityLens
+            | PuzzleKind::Ferrofluid
+            | PuzzleKind::ClothUnfurl
+            | PuzzleKind::BubbleRaft
+            | PuzzleKind::BoidFlock
+            | PuzzleKind::PachinkoDrop
+            | PuzzleKind::JellyLattice => PuzzleCategory::PhysicsAndDynamics,
+
+            PuzzleKind::ConwayLife
+            | PuzzleKind::LangtonsAnt
+            | PuzzleKind::ReactionDiffusion
+            | PuzzleKind::MandelbrotFractal
+            | PuzzleKind::LSystemBloom
+            | PuzzleKind::ForestFire
+            | PuzzleKind::Wireworld
+            | PuzzleKind::CyclicAutomaton => PuzzleCategory::CellularAndAutomata,
         }
     }
 
@@ -181,6 +333,42 @@ impl PuzzleKind {
             PuzzleKind::DelaunayMesh => "Geometric wireframe mesh triangulating and shading into full artwork.",
             PuzzleKind::ScratchReveal => "Metallic frosted coating scratched away in a fluid continuous path.",
             PuzzleKind::ColorByNumber => "Quantized color regions numbered and filled sequentially.",
+
+            PuzzleKind::SandFlow => "Cascading granular sand particles settling column-by-column into target pixels.",
+            PuzzleKind::FluidDroplets => "Viscous fluid droplets splattering and merging with surface tension.",
+            PuzzleKind::GravityLens => "Relativistic gravitational bend deflecting light rays into relativistic snap-alignment.",
+            PuzzleKind::Ferrofluid => "Magnetic iron powder spikes aligning along field lines then relaxing to picture.",
+            PuzzleKind::ClothUnfurl => "Wrinkled 3D draped cloth stretching and flattening into taut canvas.",
+            PuzzleKind::BubbleRaft => "Hexagonal soap bubbles floating and popping into sharp pixel clusters.",
+            PuzzleKind::BoidFlock => "Flocks of autonomous agent boids steering across screen and nesting into pixels.",
+            PuzzleKind::PachinkoDrop => "Balls bouncing off triangular peg matrix and filling vertical bins.",
+            PuzzleKind::JellyLattice => "Elastic mass-spring mesh oscillating and damping down to equilibrium.",
+
+            PuzzleKind::ConwayLife => "Cellular gliders, blinkers, and spark colonies breeding and resolving into image.",
+            PuzzleKind::LangtonsAnt => "Virtual ants walking grid rules, leaving highway trails that unveil pixels.",
+            PuzzleKind::ReactionDiffusion => "Gray-Scott chemical concentration waves sharpening into photo focus.",
+            PuzzleKind::MandelbrotFractal => "Multi-iteration Mandelbrot escape-time contours peeling back into pixels.",
+            PuzzleKind::LSystemBloom => "Recursive branching tree graphics sprouting stems and leaves that bloom into image.",
+            PuzzleKind::ForestFire => "Firefront propagation consuming dark ash to leave behind luminous image.",
+            PuzzleKind::Wireworld => "Electric electron pulses moving through circuitry to activate image cells.",
+            PuzzleKind::CyclicAutomaton => "Multi-state rock-paper-scissors spirals settling into stable original colors.",
+
+            PuzzleKind::RadixSort => "Multi-pass LSD bucket sorting on RGB color channels rearranging disordered blocks.",
+            PuzzleKind::HeapSort => "Complete binary tree sifting out-of-order blocks into position via heapify animations.",
+            PuzzleKind::MergeSort => "Recursive divide-and-conquer partitions merging smoothly along interlaced paths.",
+            PuzzleKind::PeanoCurve => "3x3 fractal space-filling curve scanning and reordering tiles into 2D order.",
+            PuzzleKind::BitonicSort => "Parallel comparison-exchange wire network sorting image strips.",
+
+            PuzzleKind::FourierSynthesis => "Spatial frequency harmonics summing incrementally from DC to crisp high frequencies.",
+            PuzzleKind::PolarUnroll => "Circular polar coordinates unwinding and unrolling into rectangular Cartesian space.",
+            PuzzleKind::MoireInterference => "Twin overlapping rotated gratings converging to zero fringe disparity.",
+            PuzzleKind::WaterRipples => "Realistic 2D wave equation circular ripples damping out to crystal-clear surface.",
+
+            PuzzleKind::PenroseTiling => "Golden-ratio dart and kite tiles floating and locking into 5-fold quasicrystal symmetry.",
+
+            PuzzleKind::TSPTour => "Simulated annealing path winding through feature nodes and expanding strokes.",
+            PuzzleKind::DijkstraWave => "Distance field wavefront traversing cost topography and illuminating the scene.",
+            PuzzleKind::VoronoiStippling => "Density-weighted stipple points relaxing via Lloyd iteration and expanding to fill image.",
         }
     }
 
@@ -201,12 +389,18 @@ impl PuzzleKind {
             PuzzleKind::ToroidalShift => Box::new(spatial::ToroidalShiftPuzzle::new(image, c, seed)),
             PuzzleKind::HexHoneycomb => Box::new(spatial::HexHoneycombPuzzle::new(image, c, seed)),
             PuzzleKind::TriangleMesh => Box::new(spatial::TriangleMeshPuzzle::new(image, c, seed)),
+            PuzzleKind::PenroseTiling => Box::new(spatial::PenroseTilingPuzzle::new(image, c, seed)),
 
             // Sorting
             PuzzleKind::StripSort => Box::new(sorting::StripSortPuzzle::new(image, c, seed)),
             PuzzleKind::HilbertCurveSort => Box::new(sorting::HilbertCurvePuzzle::new(image, c, seed)),
             PuzzleKind::VoronoiShards => Box::new(sorting::VoronoiShardsPuzzle::new(image, c, seed)),
             PuzzleKind::QuadtreeUnfold => Box::new(sorting::QuadtreeUnfoldPuzzle::new(image, c, seed)),
+            PuzzleKind::RadixSort => Box::new(sorting::RadixSortPuzzle::new(image, c, seed)),
+            PuzzleKind::HeapSort => Box::new(sorting::HeapSortPuzzle::new(image, c, seed)),
+            PuzzleKind::MergeSort => Box::new(sorting::MergeSortPuzzle::new(image, c, seed)),
+            PuzzleKind::PeanoCurve => Box::new(sorting::PeanoCurvePuzzle::new(image, c, seed)),
+            PuzzleKind::BitonicSort => Box::new(sorting::BitonicSortPuzzle::new(image, c, seed)),
 
             // Transform
             PuzzleKind::SwirlVortex => Box::new(transform::SwirlVortexPuzzle::new(image, c, seed)),
@@ -214,6 +408,10 @@ impl PuzzleKind {
             PuzzleKind::KaleidoscopeUnfold => Box::new(transform::KaleidoscopePuzzle::new(image, c, seed)),
             PuzzleKind::ChromaticGlitch => Box::new(transform::ChromaticGlitchPuzzle::new(image, c, seed)),
             PuzzleKind::MosaicCoalesce => Box::new(transform::MosaicCoalescePuzzle::new(image, c, seed)),
+            PuzzleKind::FourierSynthesis => Box::new(transform::FourierSynthesisPuzzle::new(image, c, seed)),
+            PuzzleKind::PolarUnroll => Box::new(transform::PolarUnrollPuzzle::new(image, c, seed)),
+            PuzzleKind::MoireInterference => Box::new(transform::MoireInterferencePuzzle::new(image, c, seed)),
+            PuzzleKind::WaterRipples => Box::new(transform::WaterRipplesPuzzle::new(image, c, seed)),
 
             // Path & Logic
             PuzzleKind::MazeSolver => Box::new(path_logic::MazeSolverPuzzle::new(image, c, seed)),
@@ -221,6 +419,30 @@ impl PuzzleKind {
             PuzzleKind::DelaunayMesh => Box::new(path_logic::DelaunayMeshPuzzle::new(image, c, seed)),
             PuzzleKind::ScratchReveal => Box::new(path_logic::ScratchRevealPuzzle::new(image, c, seed)),
             PuzzleKind::ColorByNumber => Box::new(path_logic::ColorByNumberPuzzle::new(image, c, seed)),
+            PuzzleKind::TSPTour => Box::new(path_logic::TSPTourPuzzle::new(image, c, seed)),
+            PuzzleKind::DijkstraWave => Box::new(path_logic::DijkstraWavePuzzle::new(image, c, seed)),
+            PuzzleKind::VoronoiStippling => Box::new(path_logic::VoronoiStipplingPuzzle::new(image, c, seed)),
+
+            // Physics & Particle Dynamics
+            PuzzleKind::SandFlow => Box::new(physics::SandFlowPuzzle::new(image, c, seed)),
+            PuzzleKind::FluidDroplets => Box::new(physics::FluidDropletsPuzzle::new(image, c, seed)),
+            PuzzleKind::GravityLens => Box::new(physics::GravityLensPuzzle::new(image, c, seed)),
+            PuzzleKind::Ferrofluid => Box::new(physics::FerrofluidPuzzle::new(image, c, seed)),
+            PuzzleKind::ClothUnfurl => Box::new(physics::ClothUnfurlPuzzle::new(image, c, seed)),
+            PuzzleKind::BubbleRaft => Box::new(physics::BubbleRaftPuzzle::new(image, c, seed)),
+            PuzzleKind::BoidFlock => Box::new(physics::BoidFlockPuzzle::new(image, c, seed)),
+            PuzzleKind::PachinkoDrop => Box::new(physics::PachinkoDropPuzzle::new(image, c, seed)),
+            PuzzleKind::JellyLattice => Box::new(physics::JellyLatticePuzzle::new(image, c, seed)),
+
+            // Cellular & Mathematical Automata
+            PuzzleKind::ConwayLife => Box::new(automata::ConwayLifePuzzle::new(image, c, seed)),
+            PuzzleKind::LangtonsAnt => Box::new(automata::LangtonsAntPuzzle::new(image, c, seed)),
+            PuzzleKind::ReactionDiffusion => Box::new(automata::ReactionDiffusionPuzzle::new(image, c, seed)),
+            PuzzleKind::MandelbrotFractal => Box::new(automata::MandelbrotFractalPuzzle::new(image, c, seed)),
+            PuzzleKind::LSystemBloom => Box::new(automata::LSystemBloomPuzzle::new(image, c, seed)),
+            PuzzleKind::ForestFire => Box::new(automata::ForestFirePuzzle::new(image, c, seed)),
+            PuzzleKind::Wireworld => Box::new(automata::WireworldPuzzle::new(image, c, seed)),
+            PuzzleKind::CyclicAutomaton => Box::new(automata::CyclicAutomatonPuzzle::new(image, c, seed)),
         }
     }
 }
