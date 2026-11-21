@@ -289,14 +289,51 @@ pub fn format_duration_mmss_sub(seconds: f32) -> String {
 }
 
 pub fn parse_duration_string(s: &str) -> Option<f32> {
-    let s = s.trim();
+    let s = s.trim().to_lowercase();
+    if s.is_empty() {
+        return None;
+    }
+
+    // Handle "5:57" or "05:57.5"
     if let Some((min_str, sec_str)) = s.split_once(':') {
         let mins: f32 = min_str.trim().parse().ok()?;
         let secs: f32 = sec_str.trim().parse().ok()?;
-        Some((mins * 60.0 + secs).clamp(0.1, 420.0))
-    } else {
-        s.parse::<f32>().ok().map(|v| v.clamp(0.1, 420.0))
+        if mins >= 0.0 && secs >= 0.0 {
+            return Some((mins * 60.0 + secs).clamp(0.5, 420.0));
+        }
     }
+
+    // Handle "5m 57s" or "5m57s" or "5m" or "57s"
+    if s.contains('m') || s.contains('s') {
+        let mut total = 0.0f32;
+        let mut found_any = false;
+
+        if let Some(m_pos) = s.find('m') {
+            let m_val: f32 = s[..m_pos].trim().parse().ok()?;
+            total += m_val * 60.0;
+            found_any = true;
+
+            let remainder = s[(m_pos + 1)..].trim();
+            if !remainder.is_empty() {
+                let sec_part = remainder.trim_end_matches('s').trim();
+                if !sec_part.is_empty() {
+                    let s_val: f32 = sec_part.parse().ok()?;
+                    total += s_val;
+                }
+            }
+        } else if s.ends_with('s') {
+            let s_val: f32 = s.trim_end_matches('s').trim().parse().ok()?;
+            total += s_val;
+            found_any = true;
+        }
+
+        if found_any {
+            return Some(total.clamp(0.5, 420.0));
+        }
+    }
+
+    // Handle raw seconds e.g. "357" or "357.5"
+    s.parse::<f32>().ok().map(|v| v.clamp(0.5, 420.0))
 }
 
 #[derive(Debug, Clone)]

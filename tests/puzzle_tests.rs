@@ -43,7 +43,15 @@ fn test_duration_mmss_formatting_and_parsing() {
 
     assert_eq!(parse_duration_string("7:00"), Some(420.0));
     assert_eq!(parse_duration_string("06:30"), Some(390.0));
-    assert_eq!(parse_duration_string("420"), Some(420.0));
+    assert_eq!(parse_duration_string("5:57"), Some(357.0));
+    assert_eq!(parse_duration_string("05:57"), Some(357.0));
+    assert_eq!(parse_duration_string("5:57.5"), Some(357.5));
+    assert_eq!(parse_duration_string("5m 57s"), Some(357.0));
+    assert_eq!(parse_duration_string("5m57s"), Some(357.0));
+    assert_eq!(parse_duration_string("5m"), Some(300.0));
+    assert_eq!(parse_duration_string("57s"), Some(57.0));
+    assert_eq!(parse_duration_string("357"), Some(357.0));
+    assert_eq!(parse_duration_string("357.25"), Some(357.25));
     assert_eq!(parse_duration_string("30.5"), Some(30.5));
 }
 

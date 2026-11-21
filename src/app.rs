@@ -7,8 +7,8 @@ use image::RgbaImage;
 
 use crate::puzzle::drawing::SampleImageType;
 use crate::puzzle::{
-    format_duration_mmss, format_duration_mmss_sub, EasingCurve, PuzzleCategory, PuzzleKind,
-    PuzzleSimulation, TimingConfig,
+    format_duration_mmss, format_duration_mmss_sub, parse_duration_string, EasingCurve,
+    PuzzleCategory, PuzzleKind, PuzzleSimulation, TimingConfig,
 };
 use crate::video::{check_ffmpeg_available, export_video, ExportJobConfig, ExportProgress, VideoFormat};
 
@@ -25,6 +25,7 @@ pub struct VideoSolverApp {
 
     // Timing & rate configuration
     timing: TimingConfig,
+    duration_input_str: String,
 
     // Playback state
     playback_time: f32,
@@ -59,6 +60,7 @@ impl VideoSolverApp {
             category_filter: None,
             current_sim: None,
             timing: TimingConfig::default(),
+            duration_input_str: "05:00".to_string(),
             playback_time: 0.0,
             is_playing: true,
             playback_speed: 1.0,
@@ -365,20 +367,62 @@ impl eframe::App for VideoSolverApp {
                         // Duration presets
                         ui.horizontal_wrapped(|ui| {
                             ui.label("Presets:");
-                            if ui.button("30s").clicked() { self.timing.total_duration_sec = 30.0; }
-                            if ui.button("1m").clicked() { self.timing.total_duration_sec = 60.0; }
-                            if ui.button("3m").clicked() { self.timing.total_duration_sec = 180.0; }
-                            if ui.button("5m").clicked() { self.timing.total_duration_sec = 300.0; }
-                            if ui.button("7m (Max)").clicked() { self.timing.total_duration_sec = 420.0; }
+                            if ui.button("30s").clicked() {
+                                self.timing.total_duration_sec = 30.0;
+                                self.duration_input_str = "00:30".to_string();
+                            }
+                            if ui.button("1m").clicked() {
+                                self.timing.total_duration_sec = 60.0;
+                                self.duration_input_str = "01:00".to_string();
+                            }
+                            if ui.button("3m").clicked() {
+                                self.timing.total_duration_sec = 180.0;
+                                self.duration_input_str = "03:00".to_string();
+                            }
+                            if ui.button("5m").clicked() {
+                                self.timing.total_duration_sec = 300.0;
+                                self.duration_input_str = "05:00".to_string();
+                            }
+                            if ui.button("7m (Max)").clicked() {
+                                self.timing.total_duration_sec = 420.0;
+                                self.duration_input_str = "07:00".to_string();
+                            }
                         });
 
                         ui.add_space(3.0);
 
                         ui.horizontal(|ui| {
                             ui.label("Video Length:");
+
                             let slider = egui::Slider::new(&mut self.timing.total_duration_sec, 0.5..=420.0)
-                                .custom_formatter(|val, _| format_duration_mmss(val as f32));
-                            ui.add(slider);
+                                .custom_formatter(|val, _| format_duration_mmss(val as f32))
+                                .custom_parser(|s| parse_duration_string(s).map(|v| v as f64));
+                            let slider_resp = ui.add(slider);
+                            if slider_resp.changed() {
+                                self.duration_input_str = format_duration_mmss(self.timing.total_duration_sec);
+                            }
+
+                            let text_edit_resp = ui.add(
+                                egui::TextEdit::singleline(&mut self.duration_input_str)
+                                    .desired_width(50.0)
+                                    .hint_text("5:57")
+                            );
+                            if text_edit_resp.changed() {
+                                if let Some(parsed) = parse_duration_string(&self.duration_input_str) {
+                                    self.timing.total_duration_sec = parsed;
+                                }
+                            } else if text_edit_resp.lost_focus() {
+                                if let Some(parsed) = parse_duration_string(&self.duration_input_str) {
+                                    self.timing.total_duration_sec = parsed;
+                                    let mins = (parsed / 60.0).floor() as u32;
+                                    let secs = parsed % 60.0;
+                                    if secs.fract() < 0.001 {
+                                        self.duration_input_str = format!("{:02}:{:02}", mins, secs.floor() as u32);
+                                    } else {
+                                        self.duration_input_str = format!("{:02}:{:04.1}", mins, secs);
+                                    }
+                                }
+                            }
                         });
 
                         ui.horizontal(|ui| {
@@ -411,7 +455,8 @@ impl eframe::App for VideoSolverApp {
                         let total_frames = self.timing.total_frames();
 
                         ui.label(RichText::new(format!("⚡ Rate: {:.2} moves / second", rate)).strong().color(Color32::from_rgb(255, 215, 80)));
-                        ui.label(format!("• Duration: {} (Solve: {} | Hold: {:.1}s)", format_duration_mmss(self.timing.total_duration_sec), format_duration_mmss(self.timing.solve_duration_sec()), self.timing.hold_duration_sec));
+                        ui.label(format!("• Exact Duration: {} ({:.2}s)", format_duration_mmss(self.timing.total_duration_sec), self.timing.total_duration_sec));
+                        ui.label(format!("• Active Solve Window: {} (Hold: {:.1}s)", format_duration_mmss(self.timing.solve_duration_sec()), self.timing.hold_duration_sec));
                         ui.label(format!("• Total Discrete Steps: {}", total_steps));
                         ui.label(format!("• Total Frames: {} frames @ {} fps", total_frames, self.timing.fps));
                     });
