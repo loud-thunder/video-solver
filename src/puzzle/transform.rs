@@ -43,6 +43,7 @@ impl SwirlVortexPuzzle {
 }
 
 impl PuzzleSimulation for SwirlVortexPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::SwirlVortex
     }
@@ -180,6 +181,7 @@ impl WavePhaseAlignPuzzle {
 }
 
 impl PuzzleSimulation for WavePhaseAlignPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::WavePhaseAlign
     }
@@ -308,6 +310,7 @@ impl KaleidoscopePuzzle {
 }
 
 impl PuzzleSimulation for KaleidoscopePuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::KaleidoscopeUnfold
     }
@@ -464,6 +467,7 @@ impl ChromaticGlitchPuzzle {
 }
 
 impl PuzzleSimulation for ChromaticGlitchPuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::ChromaticGlitch
     }
@@ -577,6 +581,7 @@ impl MosaicCoalescePuzzle {
 }
 
 impl PuzzleSimulation for MosaicCoalescePuzzle {
+    fn update_source(&mut self, image: &RgbaImage) { self.original = image.clone(); }
     fn kind(&self) -> PuzzleKind {
         PuzzleKind::MosaicCoalesce
     }

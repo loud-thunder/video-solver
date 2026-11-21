@@ -10,13 +10,16 @@ use crate::puzzle::{
     format_duration_mmss, format_duration_mmss_sub, parse_duration_string, EasingCurve,
     PlaybackPhase, PuzzleCategory, PuzzleKind, PuzzleSimulation, TimingConfig,
 };
-use crate::video::{check_ffmpeg_available, export_video, ExportJobConfig, ExportProgress, VideoFormat};
+use crate::video::{
+    check_ffmpeg_available, export_video_media, load_video_from_path, ExportJobConfig,
+    ExportProgress, SourceMedia, VideoFormat, VideoLoopMode,
+};
 
 pub struct VideoSolverApp {
-    // Current source image
-    source_image: RgbaImage,
+    // Current source media (image or video)
+    source_media: SourceMedia,
     source_name: String,
-    sample_type: SampleImageType,
+    sample_type: Option<SampleImageType>,
 
     // Simulation
     selected_kind: PuzzleKind,
@@ -36,6 +39,7 @@ pub struct VideoSolverApp {
     // Preview texture
     preview_texture: Option<TextureHandle>,
     last_rendered_progress: f32,
+    last_rendered_media_idx: usize,
 
     // Export state
     ffmpeg_available: bool,
@@ -53,9 +57,9 @@ impl VideoSolverApp {
         let ffmpeg_available = check_ffmpeg_available();
 
         let mut app = Self {
-            source_image: img,
+            source_media: SourceMedia::from_image(img),
             source_name: sample.name().to_string(),
-            sample_type: sample,
+            sample_type: Some(sample),
             selected_kind: PuzzleKind::JigsawClassic,
             category_filter: None,
             current_sim: None,
@@ -67,6 +71,7 @@ impl VideoSolverApp {
             last_frame_instant: Instant::now(),
             preview_texture: None,
             last_rendered_progress: -1.0,
+            last_rendered_media_idx: usize::MAX,
             ffmpeg_available,
             active_export: None,
             export_message: None,
@@ -77,18 +82,27 @@ impl VideoSolverApp {
     }
 
     fn rebuild_simulation(&mut self) {
+        let base_img = &self.source_media.frames[0];
         let sim = self.selected_kind.create_simulation(
-            &self.source_image,
+            base_img,
             self.timing.effective_complexity(),
             self.timing.seed,
         );
         self.current_sim = Some(sim);
         self.last_rendered_progress = -1.0;
+        self.last_rendered_media_idx = usize::MAX;
     }
 
     fn set_new_image(&mut self, img: RgbaImage, name: String) {
-        self.source_image = img;
+        self.source_media = SourceMedia::from_image(img);
         self.source_name = name;
+        self.rebuild_simulation();
+    }
+
+    fn set_new_video(&mut self, media: SourceMedia, name: String) {
+        self.source_media = media;
+        self.source_name = name;
+        self.sample_type = None;
         self.rebuild_simulation();
     }
 
@@ -99,13 +113,23 @@ impl VideoSolverApp {
             PlaybackPhase::Rollback(p) => 0.5 + p * 0.5,
         };
 
-        // Avoid re-rendering if progress hasn't noticeably changed
-        if (progress_key - self.last_rendered_progress).abs() < 0.0005 && self.preview_texture.is_some() {
+        let media_idx = self.source_media.frame_index_at_time(self.playback_time);
+
+        // Avoid re-rendering if progress and video frame haven't noticeably changed
+        if (progress_key - self.last_rendered_progress).abs() < 0.0005
+            && media_idx == self.last_rendered_media_idx
+            && self.preview_texture.is_some()
+        {
             return;
         }
 
-        if let Some(sim) = &self.current_sim {
-            let mut out = RgbaImage::new(self.source_image.width(), self.source_image.height());
+        if let Some(sim) = &mut self.current_sim {
+            if media_idx != self.last_rendered_media_idx {
+                sim.update_source(&self.source_media.frames[media_idx]);
+                self.last_rendered_media_idx = media_idx;
+            }
+
+            let mut out = RgbaImage::new(self.source_media.width(), self.source_media.height());
             match phase {
                 PlaybackPhase::Solve(p) => sim.render_frame(p, &mut out),
                 PlaybackPhase::Hold => sim.render_frame(1.0, &mut out),
@@ -131,18 +155,18 @@ impl VideoSolverApp {
         let config = ExportJobConfig {
             output_path: path.clone(),
             format,
-            width: self.source_image.width(),
-            height: self.source_image.height(),
+            width: self.source_media.width(),
+            height: self.source_media.height(),
             timing: self.timing.clone(),
             puzzle_kind: self.selected_kind,
         };
 
         let progress = ExportProgress::new(self.timing.total_frames());
         let progress_clone = progress.clone();
-        let img = self.source_image.clone();
+        let media = self.source_media.clone();
 
         let handle = std::thread::spawn(move || {
-            export_video(&img, &config, progress_clone)
+            export_video_media(&media, &config, progress_clone)
         });
 
         self.active_export = Some((progress, handle));
@@ -153,7 +177,7 @@ impl VideoSolverApp {
         let kinds = PuzzleKind::ALL;
         let timing = self.timing.clone();
         let frames_per_puzzle = timing.total_frames();
-        let img = self.source_image.clone();
+        let media = self.source_media.clone();
 
         let total_frames = frames_per_puzzle * kinds.len() as u32;
         let progress = ExportProgress::new(total_frames);
@@ -171,8 +195,8 @@ impl VideoSolverApp {
                 let config = ExportJobConfig {
                     output_path: out_file,
                     format: VideoFormat::Mp4H264,
-                    width: img.width(),
-                    height: img.height(),
+                    width: media.width(),
+                    height: media.height(),
                     timing: timing.clone(),
                     puzzle_kind: *kind,
                 };
@@ -193,7 +217,7 @@ impl VideoSolverApp {
                     }
                 });
 
-                let res = export_video(&img, &config, sub_progress);
+                let res = export_video_media(&media, &config, sub_progress);
                 is_running.store(false, Ordering::Relaxed);
                 let _ = sub_watcher.join();
 
@@ -252,11 +276,11 @@ impl eframe::App for VideoSolverApp {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.heading(RichText::new("🎬 Video Solver Studio").strong().color(Color32::from_rgb(90, 180, 255)));
-                ui.label(RichText::new("• 22 Algorithmic & Spatial Image Puzzles").italics());
+                ui.label(RichText::new("• 22 Algorithmic & Spatial Image/Video Puzzles").italics());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if self.ffmpeg_available {
-                        ui.label(RichText::new("✓ FFmpeg Ready (MP4 H.264)").color(Color32::from_rgb(100, 220, 120)));
+                        ui.label(RichText::new("✓ FFmpeg Ready (MP4 H.264 & Video Import)").color(Color32::from_rgb(100, 220, 120)));
                     } else {
                         ui.label(RichText::new("⚠ FFmpeg Not Found (GIF fallback)").color(Color32::from_rgb(255, 180, 70)));
                     }
@@ -273,10 +297,10 @@ impl eframe::App for VideoSolverApp {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.add_space(8.0);
 
-                    // SECTION 1: Image Source
+                    // SECTION 1: Image & Video Source
                     ui.group(|ui| {
-                        ui.heading("🖼 Image Source");
-                        ui.horizontal(|ui| {
+                        ui.heading("🖼 Media Source (Image or Video)");
+                        ui.horizontal_wrapped(|ui| {
                             if ui.button("📂 Load Image...").clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("Images", &["png", "jpg", "jpeg", "webp", "bmp"])
@@ -284,24 +308,98 @@ impl eframe::App for VideoSolverApp {
                                 {
                                     if let Ok(dyn_img) = image::open(&path) {
                                         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                        self.sample_type = None;
                                         self.set_new_image(dyn_img.to_rgba8(), name);
                                     }
                                 }
                             }
 
-                            egui::ComboBox::from_label("")
-                                .selected_text(self.sample_type.name())
+                            if ui.button("🎬 Load Video...").clicked() {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("Videos", &["mp4", "mov", "webm", "mkv", "avi", "m4v", "gif"])
+                                    .pick_file()
+                                {
+                                    match load_video_from_path(&path) {
+                                        Ok(media) => {
+                                            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                            self.set_new_video(media, name);
+                                        }
+                                        Err(e) => {
+                                            self.export_message = Some((format!("Failed to load video: {}", e), true));
+                                        }
+                                    }
+                                }
+                            }
+
+                            let mut current_sample = self.sample_type.unwrap_or(SampleImageType::VibrantMandala);
+                            let sample_label = if self.sample_type.is_some() {
+                                current_sample.name()
+                            } else {
+                                "Procedural..."
+                            };
+
+                            egui::ComboBox::from_id_salt("procedural_picker")
+                                .selected_text(sample_label)
                                 .show_ui(ui, |ui| {
                                     for sample in SampleImageType::all() {
-                                        if ui.selectable_value(&mut self.sample_type, *sample, sample.name()).clicked() {
-                                            let img = self.sample_type.generate(600, 600);
+                                        if ui.selectable_value(&mut current_sample, *sample, sample.name()).clicked() {
+                                            let img = sample.generate(600, 600);
+                                            self.sample_type = Some(*sample);
                                             self.set_new_image(img, sample.name().to_string());
                                         }
                                     }
                                 });
                         });
 
-                        ui.small(format!("Active: {} ({}x{})", self.source_name, self.source_image.width(), self.source_image.height()));
+                        ui.add_space(4.0);
+
+                        if self.source_media.is_video() {
+                            let cur_frame = self.source_media.frame_index_at_time(self.playback_time);
+                            let total_frames = self.source_media.total_video_frames();
+                            let pct = ((cur_frame + 1) as f32 / total_frames as f32) * 100.0;
+
+                            ui.label(RichText::new(format!(
+                                "🎬 Video: {} ({}x{}, {} frames @ {:.1} fps)",
+                                self.source_name,
+                                self.source_media.width(),
+                                self.source_media.height(),
+                                total_frames,
+                                self.source_media.source_fps,
+                            )).strong().color(Color32::from_rgb(120, 220, 255)));
+
+                            ui.label(RichText::new(format!(
+                                "• Active Video Frame: {} / {} ({:.0}%)",
+                                cur_frame + 1,
+                                total_frames,
+                                pct,
+                            )).small());
+
+                            ui.add_space(4.0);
+                            ui.label("Video Playback Mode:");
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(
+                                    &mut self.source_media.loop_mode,
+                                    VideoLoopMode::ContinuousLoop,
+                                    "🔁 Continuous (0 → 100, 0 → 100)",
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(
+                                    &mut self.source_media.loop_mode,
+                                    VideoLoopMode::Bounce,
+                                    "↔ Bounce (0 → 100 → 0)",
+                                );
+                            });
+
+                            ui.horizontal(|ui| {
+                                ui.label("Video Speed:");
+                                ui.selectable_value(&mut self.source_media.speed, 0.5, "0.5x");
+                                ui.selectable_value(&mut self.source_media.speed, 1.0, "1x");
+                                ui.selectable_value(&mut self.source_media.speed, 2.0, "2x");
+                            });
+                        } else {
+                            ui.small(format!("Active Image: {} ({}x{})", self.source_name, self.source_media.width(), self.source_media.height()));
+                        }
                     });
 
                     ui.add_space(8.0);

@@ -9,6 +9,12 @@ A native Rust desktop application and CLI tool that converts any input image int
 - **Native Studio GUI (`eframe` / `egui`)**:
   - Live 60 FPS preview canvas with real-time playback scrubber (`0:00 .. 7:00`).
   - Play / Pause, restart, and variable playback speeds (`0.5x`, `1.0x`, `2.0x`).
+  - **Animated Video Source Import**:
+    - Import video files (`.mp4`, `.mov`, `.webm`, `.mkv`, `.avi`, `.m4v`, `.gif`) as the live animating texture on puzzle pieces.
+    - **Continuous Loop Mode (`0 → 100, 0 → 100`)**: Plays continuously frame 0 to end, loops back to 0, and repeats.
+    - **Bounce / Ping-Pong Mode (`0 → 100 → 0`)**: Plays forward frame 0 to end, smoothly reverses back to 0, and repeats.
+    - Configurable source video playback speed (`0.5x`, `1.0x`, `2.0x`).
+    - Live active video frame counter & percentage readout.
   - Category filters and dropdown selector for all 22 puzzles.
   - Interactive sliders for Puzzle Complexity (`1..=20`) with "Auto-scale step density for long videos" toggle.
   - Random Seed generator.
@@ -81,7 +87,9 @@ cargo run --release
 cargo run --release -- --cli --duration 7:00 --complexity 12 --puzzle "Classic Jigsaw" --output jigsaw.mp4
 ```
 Options:
-- `--input <path>`: Path to image file (optional, defaults to procedural Mandala).
+- `--input <path>`: Path to image or video file (`.png`, `.jpg`, `.mp4`, `.mov`, `.webm`, `.mkv`, `.avi`, `.gif`). Defaults to procedural Mandala.
+- `--video-loop <loop|bounce>`: Video playback mode: `loop` (continuous 0 to 100) or `bounce` (0 to 100 to 0). Defaults to `loop`.
+- `--video-speed <multiplier>`: Video playback speed multiplier (e.g. `0.5`, `1.0`, `2.0`). Defaults to `1.0`.
 - `--output <path>`: Target `.mp4` or `.gif` path (defaults to `puzzle_output.mp4`).
 - `--duration <sec or M:SS>`: Total video duration up to 7 minutes (e.g. `5:57`, `420`, or `7:00`).
 - `--complexity <1-20>`: Puzzle complexity scale (e.g. `12`).
