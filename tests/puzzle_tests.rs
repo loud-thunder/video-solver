@@ -4,7 +4,77 @@ use image::RgbaImage;
 mod puzzle;
 
 use puzzle::drawing::SampleImageType;
-use puzzle::{EasingCurve, PuzzleCategory, PuzzleKind, TimingConfig};
+use puzzle::{
+    format_duration_mmss, format_duration_mmss_sub, parse_duration_string, EasingCurve,
+    PuzzleCategory, PuzzleKind, TimingConfig,
+};
+
+#[test]
+fn test_all_22_puzzles_initialize_and_render_complexity_20() {
+    let img = SampleImageType::VibrantMandala.generate(128, 128);
+    let mut frame_buf = RgbaImage::new(128, 128);
+
+    assert_eq!(PuzzleKind::ALL.len(), 22);
+
+    for kind in PuzzleKind::ALL {
+        let sim = kind.create_simulation(&img, 20, 9999);
+        assert!(sim.total_steps() > 0, "Puzzle {:?} total_steps <= 0 at complexity 20", kind);
+
+        // Check start frame
+        sim.render_frame(0.0, &mut frame_buf);
+        let label_0 = sim.status_label(0.0);
+        assert!(!label_0.is_empty());
+
+        // Check solved frame
+        sim.render_frame(1.0, &mut frame_buf);
+        let label_1 = sim.status_label(1.0);
+        assert!(!label_1.is_empty());
+    }
+}
+
+#[test]
+fn test_duration_mmss_formatting_and_parsing() {
+    assert_eq!(format_duration_mmss(0.0), "00:00");
+    assert_eq!(format_duration_mmss(5.0), "00:05");
+    assert_eq!(format_duration_mmss(65.0), "01:05");
+    assert_eq!(format_duration_mmss(420.0), "07:00");
+
+    assert_eq!(format_duration_mmss_sub(125.4), "02:05.4");
+
+    assert_eq!(parse_duration_string("7:00"), Some(420.0));
+    assert_eq!(parse_duration_string("06:30"), Some(390.0));
+    assert_eq!(parse_duration_string("5:57"), Some(357.0));
+    assert_eq!(parse_duration_string("05:57"), Some(357.0));
+    assert_eq!(parse_duration_string("5:57.5"), Some(357.5));
+    assert_eq!(parse_duration_string("5m 57s"), Some(357.0));
+    assert_eq!(parse_duration_string("5m57s"), Some(357.0));
+    assert_eq!(parse_duration_string("5m"), Some(300.0));
+    assert_eq!(parse_duration_string("57s"), Some(57.0));
+    assert_eq!(parse_duration_string("357"), Some(357.0));
+    assert_eq!(parse_duration_string("357.25"), Some(357.25));
+    assert_eq!(parse_duration_string("30.5"), Some(30.5));
+}
+
+#[test]
+fn test_seven_minute_duration_rate() {
+    let timing = TimingConfig {
+        total_duration_sec: 420.0, // 7 minutes
+        hold_duration_sec: 10.0,
+        fps: 60,
+        easing: EasingCurve::Linear,
+        complexity: 15,
+        auto_scale_steps: true,
+        seed: 42,
+    };
+
+    assert_eq!(timing.solve_duration_sec(), 410.0);
+    assert_eq!(timing.total_frames(), 420 * 60);
+
+    let total_steps = 820;
+    let rate = timing.solve_rate_steps_per_sec(total_steps);
+    // 820 / 410 = 2.0 steps / sec
+    assert!((rate - 2.0).abs() < 1e-4);
+}
 
 #[test]
 fn test_all_22_puzzles_initialize_and_render() {
@@ -43,6 +113,7 @@ fn test_timing_duration_controls_solve_rate() {
         fps: 30,
         easing: EasingCurve::Linear,
         complexity: 5,
+        auto_scale_steps: false,
         seed: 42,
     };
     let fast_rate = fast_timing.solve_rate_steps_per_sec(steps);
@@ -55,6 +126,7 @@ fn test_timing_duration_controls_solve_rate() {
         fps: 30,
         easing: EasingCurve::Linear,
         complexity: 5,
+        auto_scale_steps: false,
         seed: 42,
     };
     let slow_rate = slow_timing.solve_rate_steps_per_sec(steps);

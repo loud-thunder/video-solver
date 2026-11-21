@@ -6,7 +6,10 @@ use eframe::egui::{self, Color32, ColorImage, RichText, TextureHandle, TextureOp
 use image::RgbaImage;
 
 use crate::puzzle::drawing::SampleImageType;
-use crate::puzzle::{EasingCurve, PuzzleCategory, PuzzleKind, PuzzleSimulation, TimingConfig};
+use crate::puzzle::{
+    format_duration_mmss, format_duration_mmss_sub, parse_duration_string, EasingCurve,
+    PuzzleCategory, PuzzleKind, PuzzleSimulation, TimingConfig,
+};
 use crate::video::{check_ffmpeg_available, export_video, ExportJobConfig, ExportProgress, VideoFormat};
 
 pub struct VideoSolverApp {
@@ -22,6 +25,7 @@ pub struct VideoSolverApp {
 
     // Timing & rate configuration
     timing: TimingConfig,
+    duration_input_str: String,
 
     // Playback state
     playback_time: f32,
@@ -56,6 +60,7 @@ impl VideoSolverApp {
             category_filter: None,
             current_sim: None,
             timing: TimingConfig::default(),
+            duration_input_str: "05:00".to_string(),
             playback_time: 0.0,
             is_playing: true,
             playback_speed: 1.0,
@@ -74,7 +79,7 @@ impl VideoSolverApp {
     fn rebuild_simulation(&mut self) {
         let sim = self.selected_kind.create_simulation(
             &self.source_image,
-            self.timing.complexity,
+            self.timing.effective_complexity(),
             self.timing.seed,
         );
         self.current_sim = Some(sim);
@@ -331,10 +336,14 @@ impl eframe::App for VideoSolverApp {
                         // Complexity Slider
                         ui.horizontal(|ui| {
                             ui.label("Complexity:");
-                            if ui.add(egui::Slider::new(&mut self.timing.complexity, 1..=10)).changed() {
+                            if ui.add(egui::Slider::new(&mut self.timing.complexity, 1..=20)).changed() {
                                 self.rebuild_simulation();
                             }
                         });
+
+                        if ui.checkbox(&mut self.timing.auto_scale_steps, "Auto-scale step density for long videos").changed() {
+                            self.rebuild_simulation();
+                        }
 
                         // Seed & Randomize
                         ui.horizontal(|ui| {
@@ -355,14 +364,70 @@ impl eframe::App for VideoSolverApp {
                     ui.group(|ui| {
                         ui.heading("⏱ Duration & Solve Rate");
 
+                        // Duration presets
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label("Presets:");
+                            if ui.button("30s").clicked() {
+                                self.timing.total_duration_sec = 30.0;
+                                self.duration_input_str = "00:30".to_string();
+                            }
+                            if ui.button("1m").clicked() {
+                                self.timing.total_duration_sec = 60.0;
+                                self.duration_input_str = "01:00".to_string();
+                            }
+                            if ui.button("3m").clicked() {
+                                self.timing.total_duration_sec = 180.0;
+                                self.duration_input_str = "03:00".to_string();
+                            }
+                            if ui.button("5m").clicked() {
+                                self.timing.total_duration_sec = 300.0;
+                                self.duration_input_str = "05:00".to_string();
+                            }
+                            if ui.button("7m (Max)").clicked() {
+                                self.timing.total_duration_sec = 420.0;
+                                self.duration_input_str = "07:00".to_string();
+                            }
+                        });
+
+                        ui.add_space(3.0);
+
                         ui.horizontal(|ui| {
                             ui.label("Video Length:");
-                            ui.add(egui::Slider::new(&mut self.timing.total_duration_sec, 0.5..=60.0).suffix("s"));
+
+                            let slider = egui::Slider::new(&mut self.timing.total_duration_sec, 0.5..=420.0)
+                                .custom_formatter(|val, _| format_duration_mmss(val as f32))
+                                .custom_parser(|s| parse_duration_string(s).map(|v| v as f64));
+                            let slider_resp = ui.add(slider);
+                            if slider_resp.changed() {
+                                self.duration_input_str = format_duration_mmss(self.timing.total_duration_sec);
+                            }
+
+                            let text_edit_resp = ui.add(
+                                egui::TextEdit::singleline(&mut self.duration_input_str)
+                                    .desired_width(50.0)
+                                    .hint_text("5:57")
+                            );
+                            if text_edit_resp.changed() {
+                                if let Some(parsed) = parse_duration_string(&self.duration_input_str) {
+                                    self.timing.total_duration_sec = parsed;
+                                }
+                            } else if text_edit_resp.lost_focus() {
+                                if let Some(parsed) = parse_duration_string(&self.duration_input_str) {
+                                    self.timing.total_duration_sec = parsed;
+                                    let mins = (parsed / 60.0).floor() as u32;
+                                    let secs = parsed % 60.0;
+                                    if secs.fract() < 0.001 {
+                                        self.duration_input_str = format!("{:02}:{:02}", mins, secs.floor() as u32);
+                                    } else {
+                                        self.duration_input_str = format!("{:02}:{:04.1}", mins, secs);
+                                    }
+                                }
+                            }
                         });
 
                         ui.horizontal(|ui| {
                             ui.label("Solved Hold:");
-                            ui.add(egui::Slider::new(&mut self.timing.hold_duration_sec, 0.0..=3.0).suffix("s"));
+                            ui.add(egui::Slider::new(&mut self.timing.hold_duration_sec, 0.0..=10.0).suffix("s"));
                         });
 
                         ui.horizontal(|ui| {
@@ -389,8 +454,9 @@ impl eframe::App for VideoSolverApp {
                         let rate = self.timing.solve_rate_steps_per_sec(total_steps);
                         let total_frames = self.timing.total_frames();
 
-                        ui.label(RichText::new(format!("⚡ Rate: {:.1} moves / second", rate)).strong().color(Color32::from_rgb(255, 215, 80)));
-                        ui.label(format!("• Active Solve Window: {:.2}s (Hold: {:.2}s)", self.timing.solve_duration_sec(), self.timing.hold_duration_sec));
+                        ui.label(RichText::new(format!("⚡ Rate: {:.2} moves / second", rate)).strong().color(Color32::from_rgb(255, 215, 80)));
+                        ui.label(format!("• Exact Duration: {} ({:.2}s)", format_duration_mmss(self.timing.total_duration_sec), self.timing.total_duration_sec));
+                        ui.label(format!("• Active Solve Window: {} (Hold: {:.1}s)", format_duration_mmss(self.timing.solve_duration_sec()), self.timing.hold_duration_sec));
                         ui.label(format!("• Total Discrete Steps: {}", total_steps));
                         ui.label(format!("• Total Frames: {} frames @ {} fps", total_frames, self.timing.fps));
                     });
@@ -402,6 +468,7 @@ impl eframe::App for VideoSolverApp {
                         ui.heading("💾 Video Export");
 
                         let is_exporting = self.active_export.is_some();
+                        let gif_allowed = self.timing.total_duration_sec <= 60.0;
 
                         ui.horizontal(|ui| {
                             let mp4_btn = ui.add_enabled(
@@ -420,7 +487,7 @@ impl eframe::App for VideoSolverApp {
                             }
 
                             let gif_btn = ui.add_enabled(
-                                !is_exporting,
+                                !is_exporting && gif_allowed,
                                 egui::Button::new("🎞 Export GIF")
                             );
                             if gif_btn.clicked() {
@@ -434,6 +501,10 @@ impl eframe::App for VideoSolverApp {
                                 }
                             }
                         });
+
+                        if !gif_allowed {
+                            ui.small(RichText::new("ℹ GIF disabled for videos > 1 min (use MP4 for up to 7 min)").color(Color32::from_rgb(255, 190, 80)));
+                        }
 
                         ui.add_space(4.0);
 
@@ -489,14 +560,16 @@ impl eframe::App for VideoSolverApp {
                 // Scrubber Slider
                 let mut t = self.playback_time;
                 let slider = egui::Slider::new(&mut t, 0.0..=self.timing.total_duration_sec)
-                    .custom_formatter(|val, _| format!("{:.2}s", val))
+                    .custom_formatter(|val, _| format_duration_mmss_sub(val as f32))
                     .show_value(true);
 
-                let response = ui.add_sized([ui.available_width() - 220.0, 20.0], slider);
+                let response = ui.add_sized([ui.available_width() - 320.0, 20.0], slider);
                 if response.changed() {
                     self.playback_time = t;
                     ctx.request_repaint();
                 }
+
+                ui.label(RichText::new(format!("{}/{}", format_duration_mmss(self.playback_time), format_duration_mmss(self.timing.total_duration_sec))).monospace());
 
                 // Speed buttons
                 ui.label("Speed:");

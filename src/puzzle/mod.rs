@@ -190,7 +190,7 @@ impl PuzzleKind {
         complexity: u32,
         seed: u64,
     ) -> Box<dyn PuzzleSimulation> {
-        let c = complexity.clamp(1, 10);
+        let c = complexity.clamp(1, 20);
         match self {
             // Spatial
             PuzzleKind::JigsawClassic => Box::new(spatial::JigsawPuzzle::new(image, c, seed)),
@@ -274,6 +274,68 @@ impl EasingCurve {
     }
 }
 
+pub fn format_duration_mmss(seconds: f32) -> String {
+    let total_secs = seconds.max(0.0);
+    let mins = (total_secs / 60.0).floor() as u32;
+    let secs = (total_secs % 60.0).floor() as u32;
+    format!("{:02}:{:02}", mins, secs)
+}
+
+pub fn format_duration_mmss_sub(seconds: f32) -> String {
+    let total_secs = seconds.max(0.0);
+    let mins = (total_secs / 60.0).floor() as u32;
+    let secs = total_secs % 60.0;
+    format!("{:02}:{:04.1}", mins, secs)
+}
+
+pub fn parse_duration_string(s: &str) -> Option<f32> {
+    let s = s.trim().to_lowercase();
+    if s.is_empty() {
+        return None;
+    }
+
+    // Handle "5:57" or "05:57.5"
+    if let Some((min_str, sec_str)) = s.split_once(':') {
+        let mins: f32 = min_str.trim().parse().ok()?;
+        let secs: f32 = sec_str.trim().parse().ok()?;
+        if mins >= 0.0 && secs >= 0.0 {
+            return Some((mins * 60.0 + secs).clamp(0.5, 420.0));
+        }
+    }
+
+    // Handle "5m 57s" or "5m57s" or "5m" or "57s"
+    if s.contains('m') || s.contains('s') {
+        let mut total = 0.0f32;
+        let mut found_any = false;
+
+        if let Some(m_pos) = s.find('m') {
+            let m_val: f32 = s[..m_pos].trim().parse().ok()?;
+            total += m_val * 60.0;
+            found_any = true;
+
+            let remainder = s[(m_pos + 1)..].trim();
+            if !remainder.is_empty() {
+                let sec_part = remainder.trim_end_matches('s').trim();
+                if !sec_part.is_empty() {
+                    let s_val: f32 = sec_part.parse().ok()?;
+                    total += s_val;
+                }
+            }
+        } else if s.ends_with('s') {
+            let s_val: f32 = s.trim_end_matches('s').trim().parse().ok()?;
+            total += s_val;
+            found_any = true;
+        }
+
+        if found_any {
+            return Some(total.clamp(0.5, 420.0));
+        }
+    }
+
+    // Handle raw seconds e.g. "357" or "357.5"
+    s.parse::<f32>().ok().map(|v| v.clamp(0.5, 420.0))
+}
+
 #[derive(Debug, Clone)]
 pub struct TimingConfig {
     pub total_duration_sec: f32,
@@ -281,6 +343,7 @@ pub struct TimingConfig {
     pub fps: u32,
     pub easing: EasingCurve,
     pub complexity: u32,
+    pub auto_scale_steps: bool,
     pub seed: u64,
 }
 
@@ -292,12 +355,22 @@ impl Default for TimingConfig {
             fps: 60,
             easing: EasingCurve::EaseInOut,
             complexity: 5,
+            auto_scale_steps: false,
             seed: 42,
         }
     }
 }
 
 impl TimingConfig {
+    pub fn effective_complexity(&self) -> u32 {
+        if self.auto_scale_steps && self.total_duration_sec > 30.0 {
+            let scale_bonus = ((self.total_duration_sec - 30.0) / 39.0).round() as u32; // up to +10 for 420s
+            (self.complexity + scale_bonus).clamp(1, 20)
+        } else {
+            self.complexity.clamp(1, 20)
+        }
+    }
+
     pub fn solve_duration_sec(&self) -> f32 {
         let max_hold = (self.total_duration_sec * 0.5).max(0.0);
         let hold = self.hold_duration_sec.min(max_hold).max(0.0);

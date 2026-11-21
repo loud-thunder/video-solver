@@ -95,6 +95,7 @@ fn run_automated_verification() -> anyhow::Result<()> {
         fps: 30,
         easing: puzzle::EasingCurve::EaseInOut,
         complexity: 4,
+        auto_scale_steps: false,
         seed: 12345,
     };
 
@@ -164,7 +165,9 @@ fn run_cli_export(args: &[String]) -> anyhow::Result<()> {
             }
             "--duration" => {
                 i += 1;
-                if i < args.len() { duration_sec = args[i].parse().unwrap_or(5.0); }
+                if i < args.len() {
+                    duration_sec = puzzle::parse_duration_string(&args[i]).unwrap_or(5.0);
+                }
             }
             "--complexity" => {
                 i += 1;
