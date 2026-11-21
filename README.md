@@ -16,7 +16,7 @@ A high-performance creative coding studio and procedural video synthesis suite b
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                                 STUDIO PREVIEW CANVAS                                  │
-│   [ Mandala / Custom Media ] ──> [ Algorithmic Decomposition ] ──> [ Kinematic Solve ]  │
+│   [ Mandala / Custom Media ] ──> [ Algorithmic Decomposition ] ──> [ Kinematic Solve ] │
 │                                                                                        │
 │   ▶ Play/Pause   [ 0:00 ━━━━●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 7:00 ]   Rate: 14.2 moves/s │
 └────────────────────────────────────────────────────────────────────────────────────────┘
