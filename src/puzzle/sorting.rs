@@ -142,6 +142,63 @@ impl PuzzleSimulation for StripSortPuzzle {
             }
         }
     }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let total = self.total_steps();
+        let cur_f = progress * total as f32;
+        let step_idx = (cur_f.floor() as usize).min(total);
+        let sub_p = if step_idx >= total { 0.0 } else { cur_f - step_idx as f32 };
+        let ease = sub_p * sub_p * (3.0 - 2.0 * sub_p);
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let strip_w = w as f32 / self.num_strips as f32;
+
+        let reverse_step = total.saturating_sub(step_idx);
+        let arr = self.state_at_step(reverse_step);
+        let active = if step_idx < total && reverse_step > 0 {
+            Some(self.swaps[reverse_step - 1])
+        } else {
+            None
+        };
+
+        for pos in 0..self.num_strips {
+            let strip_id = arr[pos];
+
+            let cur_x = match active {
+                Some((a, b)) if pos == a => {
+                    let x0 = a as f32 * strip_w;
+                    let x1 = b as f32 * strip_w;
+                    x0 + (x1 - x0) * ease
+                }
+                Some((a, b)) if pos == b => {
+                    let x0 = b as f32 * strip_w;
+                    let x1 = a as f32 * strip_w;
+                    x0 + (x1 - x0) * ease
+                }
+                _ => pos as f32 * strip_w,
+            };
+
+            let src_x = (strip_id as f32 * strip_w) as u32;
+            let sw = strip_w.ceil() as u32;
+
+            for y in 0..h {
+                for sx in 0..sw {
+                    let src_px = (src_x + sx).min(w - 1);
+                    let dst_px = (cur_x + sx as f32).round() as i32;
+                    if dst_px >= 0 && dst_px < w as i32 {
+                        let mut color = *self.original.get_pixel(src_px, y);
+                        if let Some((a, b)) = active {
+                            if (pos == a || pos == b) && progress > 0.001 {
+                                color.0[2] = color.0[2].saturating_add(40);
+                            }
+                        }
+                        out.put_pixel(dst_px as u32, y, color);
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -278,6 +335,77 @@ impl PuzzleSimulation for HilbertCurvePuzzle {
                     let x1 = ax as f32 * bw;
                     let y1 = ay as f32 * bh;
                     (x0 + (x1 - x0) * ease, y0 + (y1 - y0) * ease)
+                }
+                _ => (curr_hx as f32 * bw, curr_hy as f32 * bh),
+            };
+
+            let (src_hx, src_hy) = self.hilbert_points[block_id];
+            let sx0 = (src_hx as f32 * bw) as u32;
+            let sy0 = (src_hy as f32 * bh) as u32;
+
+            let dxi = dst_x.round() as i32;
+            let dyi = dst_y.round() as i32;
+            let block_wi = bw.ceil() as u32;
+            let block_hi = bh.ceil() as u32;
+
+            for by in 0..block_hi {
+                let dy = dyi + by as i32;
+                if dy < 0 || dy >= h as i32 { continue; }
+                let sy = (sy0 + by).min(h - 1);
+                for bx in 0..block_wi {
+                    let dx = dxi + bx as i32;
+                    if dx < 0 || dx >= w as i32 { continue; }
+                    let sx = (sx0 + bx).min(w - 1);
+
+                    out.put_pixel(dx as u32, dy as u32, *self.original.get_pixel(sx, sy));
+                }
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        let total = self.total_steps();
+        let cur_f = progress * total as f32;
+        let step_idx = (cur_f.floor() as usize).min(total);
+        let sub_p = if step_idx >= total { 0.0 } else { cur_f - step_idx as f32 };
+        let ease = sub_p * sub_p * (3.0 - 2.0 * sub_p);
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let n = 1 << self.order;
+        let bw = w as f32 / n as f32;
+        let bh = h as f32 / n as f32;
+
+        let reverse_step = total.saturating_sub(step_idx);
+        let arr = self.state_at_step(reverse_step);
+        let active = if step_idx < total && reverse_step > 0 {
+            Some(self.swaps[reverse_step - 1])
+        } else {
+            None
+        };
+
+        for pos in 0..arr.len() {
+            let block_id = arr[pos];
+            let (curr_hx, curr_hy) = self.hilbert_points[pos];
+
+            let (dst_x, dst_y) = match active {
+                Some((a, b)) if pos == a => {
+                    let (bx, by) = self.hilbert_points[b];
+                    let x0 = curr_hx as f32 * bw;
+                    let y0 = curr_hy as f32 * bh;
+                    let x1 = bx as f32 * bw;
+                    let y1 = by as f32 * bh;
+                    let loft = 18.0 * (sub_p * (1.0 - sub_p) * 4.0);
+                    (x0 + (x1 - x0) * ease, y0 + (y1 - y0) * ease - loft)
+                }
+                Some((a, b)) if pos == b => {
+                    let (ax, ay) = self.hilbert_points[a];
+                    let x0 = curr_hx as f32 * bw;
+                    let y0 = curr_hy as f32 * bh;
+                    let x1 = ax as f32 * bw;
+                    let y1 = ay as f32 * bh;
+                    let loft = 18.0 * (sub_p * (1.0 - sub_p) * 4.0);
+                    (x0 + (x1 - x0) * ease, y0 + (y1 - y0) * ease + loft)
                 }
                 _ => (curr_hx as f32 * bw, curr_hy as f32 * bh),
             };
@@ -443,6 +571,72 @@ impl PuzzleSimulation for VoronoiShardsPuzzle {
             }
         }
     }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let total = self.total_steps();
+        let target_f = progress * total as f32;
+
+        for px in out.pixels_mut() {
+            *px = Rgba([14, 16, 22, 255]);
+        }
+
+        for y in 0..h {
+            let py = y as f32;
+            for x in 0..w {
+                let px = x as f32;
+
+                let mut min_dist_sq = f32::MAX;
+                let mut best_seed = 0;
+
+                for (idx, &(sx, sy)) in self.seed_points.iter().enumerate() {
+                    let d = (px - sx).powi(2) + (py - sy).powi(2);
+                    if d < min_dist_sq {
+                        min_dist_sq = d;
+                        best_seed = idx;
+                    }
+                }
+
+                // Rollback explodes center shards outward first (reversed solve order)
+                let order_pos = self.solve_order.iter().rev().position(|&s| s == best_seed).unwrap_or(0);
+                let p = (target_f - order_pos as f32).clamp(0.0, 1.0);
+                let ease = p * p * (3.0 - 2.0 * p);
+
+                let (sdx, sdy, srot) = self.scatter[best_seed];
+                let (sx, sy) = self.seed_points[best_seed];
+
+                let cur_dx = sdx * ease;
+                let cur_dy = sdy * ease;
+                let cur_rot = srot * ease;
+
+                let lx = px - sx;
+                let ly = py - sy;
+                let cos_r = cur_rot.cos();
+                let sin_r = cur_rot.sin();
+                let rx = lx * cos_r - ly * sin_r;
+                let ry = lx * sin_r + ly * cos_r;
+
+                let dst_x = (sx + cur_dx + rx).round() as i32;
+                let dst_y = (sy + cur_dy + ry).round() as i32;
+
+                if dst_x >= 0 && dst_x < w as i32 && dst_y >= 0 && dst_y < h as i32 {
+                    let mut color = *self.original.get_pixel(x, y);
+                    if min_dist_sq.sqrt() < 3.0 && progress < 0.999 {
+                        color.0[0] = color.0[0].saturating_add(60);
+                        color.0[1] = color.0[1].saturating_add(60);
+                        color.0[2] = color.0[2].saturating_add(90);
+                    }
+                    out.put_pixel(dst_x as u32, dst_y as u32, color);
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -534,6 +728,28 @@ impl PuzzleSimulation for QuadtreeUnfoldPuzzle {
         *out = self.original.clone();
 
         // For blocks not yet split, fill with average color
+        for i in (target_step..total).rev() {
+            let (x, y, w, h) = self.split_sequence[i];
+            let avg = self.average_color(x, y, w, h);
+            for py in y..(y + h).min(out.height()) {
+                for px in x..(x + w).min(out.width()) {
+                    out.put_pixel(px, py, avg);
+                }
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let total = self.total_steps();
+        let target_step = ((1.0 - progress) * total as f32).floor() as usize;
+
+        *out = self.original.clone();
+
         for i in (target_step..total).rev() {
             let (x, y, w, h) = self.split_sequence[i];
             let avg = self.average_color(x, y, w, h);

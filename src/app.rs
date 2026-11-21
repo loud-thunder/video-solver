@@ -8,7 +8,7 @@ use image::RgbaImage;
 use crate::puzzle::drawing::SampleImageType;
 use crate::puzzle::{
     format_duration_mmss, format_duration_mmss_sub, parse_duration_string, EasingCurve,
-    PuzzleCategory, PuzzleKind, PuzzleSimulation, TimingConfig,
+    PlaybackPhase, PuzzleCategory, PuzzleKind, PuzzleSimulation, TimingConfig,
 };
 use crate::video::{check_ffmpeg_available, export_video, ExportJobConfig, ExportProgress, VideoFormat};
 
@@ -92,15 +92,25 @@ impl VideoSolverApp {
         self.rebuild_simulation();
     }
 
-    fn update_preview_texture(&mut self, ctx: &egui::Context, progress: f32) {
+    fn update_preview_texture(&mut self, ctx: &egui::Context, phase: PlaybackPhase) {
+        let progress_key = match phase {
+            PlaybackPhase::Solve(p) => p * 0.5,
+            PlaybackPhase::Hold => 0.5,
+            PlaybackPhase::Rollback(p) => 0.5 + p * 0.5,
+        };
+
         // Avoid re-rendering if progress hasn't noticeably changed
-        if (progress - self.last_rendered_progress).abs() < 0.0005 && self.preview_texture.is_some() {
+        if (progress_key - self.last_rendered_progress).abs() < 0.0005 && self.preview_texture.is_some() {
             return;
         }
 
         if let Some(sim) = &self.current_sim {
             let mut out = RgbaImage::new(self.source_image.width(), self.source_image.height());
-            sim.render_frame(progress, &mut out);
+            match phase {
+                PlaybackPhase::Solve(p) => sim.render_frame(p, &mut out),
+                PlaybackPhase::Hold => sim.render_frame(1.0, &mut out),
+                PlaybackPhase::Rollback(p) => sim.render_rollback_frame(p, &mut out),
+            }
 
             let color_img = ColorImage::from_rgba_unmultiplied(
                 [out.width() as usize, out.height() as usize],
@@ -113,7 +123,7 @@ impl VideoSolverApp {
                     self.preview_texture = Some(ctx.load_texture("puzzle_preview", color_img, TextureOptions::LINEAR));
                 }
             }
-            self.last_rendered_progress = progress;
+            self.last_rendered_progress = progress_key;
         }
     }
 
@@ -234,8 +244,8 @@ impl eframe::App for VideoSolverApp {
             ctx.request_repaint();
         }
 
-        let current_progress = self.timing.progress_at_time(self.playback_time);
-        self.update_preview_texture(ctx, current_progress);
+        let current_phase = self.timing.playback_state_at_time(self.playback_time);
+        self.update_preview_texture(ctx, current_phase);
 
         // Top Header
         egui::TopBottomPanel::top("header_panel").show(ctx, |ui| {
@@ -447,6 +457,11 @@ impl eframe::App for VideoSolverApp {
                                 });
                         });
 
+                        ui.add_space(2.0);
+                        if ui.checkbox(&mut self.timing.rollback, "🔄 Roll-back to initial state (novel route)").changed() {
+                            self.last_rendered_progress = -1.0;
+                        }
+
                         ui.separator();
 
                         // Live Rate Readout
@@ -456,7 +471,14 @@ impl eframe::App for VideoSolverApp {
 
                         ui.label(RichText::new(format!("⚡ Rate: {:.2} moves / second", rate)).strong().color(Color32::from_rgb(255, 215, 80)));
                         ui.label(format!("• Exact Duration: {} ({:.2}s)", format_duration_mmss(self.timing.total_duration_sec), self.timing.total_duration_sec));
-                        ui.label(format!("• Active Solve Window: {} (Hold: {:.1}s)", format_duration_mmss(self.timing.solve_duration_sec()), self.timing.hold_duration_sec));
+                        if self.timing.rollback {
+                            ui.label(RichText::new("• 3-Phase Loop Active:").color(Color32::from_rgb(140, 210, 255)));
+                            ui.label(format!("   ↳ Phase 1 (Solve): {:.2}s (45%)", self.timing.total_duration_sec * 0.45));
+                            ui.label(format!("   ↳ Phase 2 (Hold Solved): {:.2}s (10%)", self.timing.total_duration_sec * 0.10));
+                            ui.label(format!("   ↳ Phase 3 (Roll-back): {:.2}s (45%)", self.timing.total_duration_sec * 0.45));
+                        } else {
+                            ui.label(format!("• Active Solve Window: {} (Hold: {:.1}s)", format_duration_mmss(self.timing.solve_duration_sec()), self.timing.hold_duration_sec));
+                        }
                         ui.label(format!("• Total Discrete Steps: {}", total_steps));
                         ui.label(format!("• Total Frames: {} frames @ {} fps", total_frames, self.timing.fps));
                     });
@@ -587,7 +609,11 @@ impl eframe::App for VideoSolverApp {
 
                 // Simulation status banner
                 if let Some(sim) = &self.current_sim {
-                    let label = sim.status_label(current_progress);
+                    let label = match current_phase {
+                        PlaybackPhase::Solve(p) => sim.status_label(p),
+                        PlaybackPhase::Hold => format!("✨ Solved: {} (Holding)", self.selected_kind.name()),
+                        PlaybackPhase::Rollback(p) => format!("🔄 Roll-back: {:.0}% deconstructed (novel route)", p * 100.0),
+                    };
                     ui.label(RichText::new(label).strong().size(15.0).color(Color32::from_rgb(220, 230, 255)));
                 }
 

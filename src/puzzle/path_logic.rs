@@ -191,6 +191,73 @@ impl PuzzleSimulation for MazeSolverPuzzle {
             }
         }
     }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let cw = w as f32 / self.grid_w as f32;
+        let ch = h as f32 / self.grid_h as f32;
+
+        let total_explore = self.visited_cells.len();
+        let total_solve = self.solution_path.len();
+        let total = total_explore + total_solve;
+
+        let reverse_step = ((1.0 - progress) * total as f32).floor() as usize;
+
+        // Dim base image
+        for y in 0..h {
+            for x in 0..w {
+                let mut c = *self.original.get_pixel(x, y);
+                c.0[0] = (c.0[0] as f32 * 0.12) as u8;
+                c.0[1] = (c.0[1] as f32 * 0.12) as u8;
+                c.0[2] = (c.0[2] as f32 * 0.18) as u8;
+                out.put_pixel(x, y, c);
+            }
+        }
+
+        // Visited cells
+        let visited_count = reverse_step.min(total_explore);
+        for i in 0..visited_count {
+            let (gx, gy) = self.visited_cells[i];
+            let x0 = (gx as f32 * cw) as u32;
+            let y0 = (gy as f32 * ch) as u32;
+            let x1 = ((gx + 1) as f32 * cw).min(w as f32) as u32;
+            let y1 = ((gy + 1) as f32 * ch).min(h as f32) as u32;
+
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let mut c = *self.original.get_pixel(x, y);
+                    c.0[0] = (c.0[0] as f32 * 0.55) as u8;
+                    c.0[1] = (c.0[1] as f32 * 0.55) as u8;
+                    c.0[2] = (c.0[2] as f32 * 0.65) as u8;
+                    out.put_pixel(x, y, c);
+                }
+            }
+        }
+
+        // Solution path
+        if reverse_step > total_explore {
+            let path_count = (reverse_step - total_explore).min(total_solve);
+            for i in 0..path_count {
+                let (gx, gy) = self.solution_path[i];
+                let x0 = (gx as f32 * cw) as u32;
+                let y0 = (gy as f32 * ch) as u32;
+                let x1 = ((gx + 1) as f32 * cw).min(w as f32) as u32;
+                let y1 = ((gy + 1) as f32 * ch).min(h as f32) as u32;
+
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        out.put_pixel(x, y, *self.original.get_pixel(x, y));
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -271,6 +338,52 @@ impl PuzzleSimulation for NonogramFillPuzzle {
         }
 
         // Fill revealed cells
+        for i in 0..target_step {
+            let (c, r) = self.solve_order[i];
+            let x0 = (c as f32 * cw) as u32;
+            let y0 = (r as f32 * ch) as u32;
+            let x1 = ((c + 1) as f32 * cw).min(w as f32) as u32;
+            let y1 = ((r + 1) as f32 * ch).min(h as f32) as u32;
+
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    out.put_pixel(x, y, *self.original.get_pixel(x, y));
+                }
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let n = self.grid_size;
+        let cw = w as f32 / n as f32;
+        let ch = h as f32 / n as f32;
+
+        let total = self.total_steps();
+        let target_step = (((1.0 - progress) * total as f32).floor() as usize).min(total);
+
+        // Blueprint grid background
+        for y in 0..h {
+            for x in 0..w {
+                out.put_pixel(x, y, Rgba([20, 26, 38, 255]));
+            }
+        }
+
+        for i in 0..=n {
+            let x = (i as f32 * cw) as i32;
+            let col = if i % 5 == 0 { Rgba([70, 90, 130, 255]) } else { Rgba([35, 45, 65, 255]) };
+            drawing::draw_line(out, x, 0, x, h as i32 - 1, col, 1);
+
+            let y = (i as f32 * ch) as i32;
+            drawing::draw_line(out, 0, y, w as i32 - 1, y, col, 1);
+        }
+
         for i in 0..target_step {
             let (c, r) = self.solve_order[i];
             let x0 = (c as f32 * cw) as u32;
@@ -421,6 +534,67 @@ impl PuzzleSimulation for DelaunayMeshPuzzle {
             }
         }
     }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let total = self.total_steps();
+        let target_step = (((1.0 - progress) * total as f32).floor() as usize).min(total);
+
+        // Dark blueprint background
+        for px in out.pixels_mut() {
+            *px = Rgba([16, 20, 30, 255]);
+        }
+
+        // Draw wireframe for upcoming un-filled triangles
+        for i in target_step..total {
+            let [i0, i1, i2] = self.triangles[self.solve_order[i]];
+            let (p0x, p0y) = self.nodes[i0];
+            let (p1x, p1y) = self.nodes[i1];
+            let (p2x, p2y) = self.nodes[i2];
+
+            let col = Rgba([45, 60, 90, 255]);
+            drawing::draw_line(out, p0x as i32, p0y as i32, p1x as i32, p1y as i32, col, 1);
+            drawing::draw_line(out, p1x as i32, p1y as i32, p2x as i32, p2y as i32, col, 1);
+            drawing::draw_line(out, p2x as i32, p2y as i32, p0x as i32, p0y as i32, col, 1);
+        }
+
+        // Fill remaining solved triangles
+        for i in 0..target_step {
+            let [i0, i1, i2] = self.triangles[self.solve_order[i]];
+            let (p0x, p0y) = self.nodes[i0];
+            let (p1x, p1y) = self.nodes[i1];
+            let (p2x, p2y) = self.nodes[i2];
+
+            let min_x = p0x.min(p1x).min(p2x).floor() as i32;
+            let max_x = p0x.max(p1x).max(p2x).ceil() as i32;
+            let min_y = p0y.min(p1y).min(p2y).floor() as i32;
+            let max_y = p0y.max(p1y).max(p2y).ceil() as i32;
+
+            let denom = (p1y - p2y) * (p0x - p2x) + (p2x - p1x) * (p0y - p2y);
+            if denom.abs() < 1e-4 { continue; }
+
+            for y in min_y..=max_y {
+                if y < 0 || y >= out.height() as i32 { continue; }
+                let py = y as f32;
+                for x in min_x..=max_x {
+                    if x < 0 || x >= out.width() as i32 { continue; }
+                    let px = x as f32;
+
+                    let w0 = ((p1y - p2y) * (px - p2x) + (p2x - p1x) * (py - p2y)) / denom;
+                    let w1 = ((p2y - p0y) * (px - p2x) + (p0x - p2x) * (py - p2y)) / denom;
+                    let w2 = 1.0 - w0 - w1;
+
+                    if w0 >= -0.01 && w1 >= -0.01 && w2 >= -0.01 {
+                        out.put_pixel(x as u32, y as u32, *self.original.get_pixel(x as u32, y as u32));
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -534,6 +708,62 @@ impl PuzzleSimulation for ScratchRevealPuzzle {
             }
         }
     }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let total = self.total_steps();
+        let target_step = (((1.0 - progress) * total as f32).floor() as usize).min(total);
+
+        // Silver/frosted metallic foil
+        for y in 0..h {
+            for x in 0..w {
+                let grain = (((x * 19 + y * 41) % 17) as u8) * 2;
+                let base = 180 + grain;
+                out.put_pixel(x, y, Rgba([base, base + 4, base + 8, 255]));
+            }
+        }
+
+        let r_sq = self.brush_radius * self.brush_radius;
+        for i in 0..target_step {
+            let (bx, by) = self.brush_path[i];
+            let min_x = (bx - self.brush_radius).floor().max(0.0) as u32;
+            let max_x = (bx + self.brush_radius).ceil().min(w as f32 - 1.0) as u32;
+            let min_y = (by - self.brush_radius).floor().max(0.0) as u32;
+            let max_y = (by + self.brush_radius).ceil().min(h as f32 - 1.0) as u32;
+
+            for py in min_y..=max_y {
+                let dy = py as f32 - by;
+                for px in min_x..=max_x {
+                    let dx = px as f32 - bx;
+                    if dx * dx + dy * dy <= r_sq {
+                        out.put_pixel(px, py, *self.original.get_pixel(px, py));
+                    }
+                }
+            }
+        }
+
+        if target_step > 0 && target_step < total {
+            let (cx, cy) = self.brush_path[target_step];
+            let cr = 10.0;
+            for oy in -10..=10 {
+                let py = cy as i32 + oy;
+                if py < 0 || py >= h as i32 { continue; }
+                for ox in -10..=10 {
+                    let px = cx as i32 + ox;
+                    if px < 0 || px >= w as i32 { continue; }
+                    if (ox * ox + oy * oy) as f32 <= cr * cr {
+                        out.put_pixel(px as u32, py as u32, Rgba([120, 220, 255, 255]));
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -638,6 +868,43 @@ impl PuzzleSimulation for ColorByNumberPuzzle {
                     out.put_pixel(x, y, self.palette[pal_id]);
                 } else {
                     // Unpainted canvas with subtle boundary sketch
+                    let edge = (x > 0 && self.cluster_map[idx - 1] as usize != pal_id)
+                        || (y > 0 && self.cluster_map[idx - w as usize] as usize != pal_id);
+
+                    if edge {
+                        out.put_pixel(x, y, Rgba([140, 140, 150, 255]));
+                    } else {
+                        out.put_pixel(x, y, Rgba([245, 245, 240, 255]));
+                    }
+                }
+            }
+        }
+    }
+
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage) {
+        if progress <= 0.001 {
+            *out = self.original.clone();
+            return;
+        }
+
+        let w = self.original.width();
+        let h = self.original.height();
+        let total = self.total_steps();
+        let target_step = (((1.0 - progress) * total as f32).floor() as usize).min(total);
+
+        let mut unlocked = vec![false; self.palette.len()];
+        for i in 0..target_step {
+            unlocked[self.fill_order[i]] = true;
+        }
+
+        for y in 0..h {
+            for x in 0..w {
+                let idx = (y * w + x) as usize;
+                let pal_id = self.cluster_map[idx] as usize;
+
+                if unlocked[pal_id] {
+                    out.put_pixel(x, y, self.palette[pal_id]);
+                } else {
                     let edge = (x > 0 && self.cluster_map[idx - 1] as usize != pal_id)
                         || (y > 0 && self.cluster_map[idx - w as usize] as usize != pal_id);
 

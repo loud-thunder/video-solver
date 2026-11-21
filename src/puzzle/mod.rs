@@ -225,12 +225,20 @@ impl PuzzleKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PlaybackPhase {
+    Solve(f32),     // progress 0.0 -> 1.0 (Phase 1)
+    Hold,           // crisp solved image (Phase 2)
+    Rollback(f32),  // rollback progress 0.0 -> 1.0 (Phase 3)
+}
+
 pub trait PuzzleSimulation: Send + Sync {
     #[allow(dead_code)]
     fn kind(&self) -> PuzzleKind;
     fn total_steps(&self) -> usize;
     fn status_label(&self, progress: f32) -> String;
     fn render_frame(&self, progress: f32, out: &mut RgbaImage);
+    fn render_rollback_frame(&self, progress: f32, out: &mut RgbaImage);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,6 +352,7 @@ pub struct TimingConfig {
     pub easing: EasingCurve,
     pub complexity: u32,
     pub auto_scale_steps: bool,
+    pub rollback: bool,
     pub seed: u64,
 }
 
@@ -356,6 +365,7 @@ impl Default for TimingConfig {
             easing: EasingCurve::EaseInOut,
             complexity: 5,
             auto_scale_steps: false,
+            rollback: false,
             seed: 42,
         }
     }
@@ -372,21 +382,74 @@ impl TimingConfig {
     }
 
     pub fn solve_duration_sec(&self) -> f32 {
-        let max_hold = (self.total_duration_sec * 0.5).max(0.0);
+        let max_hold = (self.total_duration_sec * 0.33).max(0.0);
         let hold = self.hold_duration_sec.min(max_hold).max(0.0);
-        (self.total_duration_sec - hold).max(0.1)
+        let active = (self.total_duration_sec - hold).max(0.1);
+        if self.rollback {
+            active * 0.5
+        } else {
+            active
+        }
+    }
+
+    pub fn rollback_duration_sec(&self) -> f32 {
+        if self.rollback {
+            self.solve_duration_sec()
+        } else {
+            0.0
+        }
+    }
+
+    pub fn effective_hold_duration_sec(&self) -> f32 {
+        let max_hold = (self.total_duration_sec * 0.33).max(0.0);
+        self.hold_duration_sec.min(max_hold).max(0.0)
     }
 
     pub fn total_frames(&self) -> u32 {
         (self.total_duration_sec * self.fps as f32).round().max(1.0) as u32
     }
 
-    pub fn progress_at_time(&self, time_sec: f32) -> f32 {
-        let solve_sec = self.solve_duration_sec();
-        let linear_u = (time_sec / solve_sec).clamp(0.0, 1.0);
-        self.easing.apply(linear_u)
+    pub fn playback_state_at_time(&self, time_sec: f32) -> PlaybackPhase {
+        let d_solve = self.solve_duration_sec();
+        let d_hold = self.effective_hold_duration_sec();
+
+        if !self.rollback {
+            let linear_u = (time_sec / d_solve).clamp(0.0, 1.0);
+            if linear_u >= 1.0 {
+                PlaybackPhase::Hold
+            } else {
+                PlaybackPhase::Solve(self.easing.apply(linear_u))
+            }
+        } else {
+            if time_sec < d_solve {
+                let linear_u = (time_sec / d_solve).clamp(0.0, 1.0);
+                PlaybackPhase::Solve(self.easing.apply(linear_u))
+            } else if time_sec < d_solve + d_hold {
+                PlaybackPhase::Hold
+            } else {
+                let d_rb = self.rollback_duration_sec();
+                let rb_t = time_sec - (d_solve + d_hold);
+                let linear_u = (rb_t / d_rb).clamp(0.0, 1.0);
+                PlaybackPhase::Rollback(self.easing.apply(linear_u))
+            }
+        }
     }
 
+    pub fn playback_state_at_frame(&self, frame_index: u32) -> PlaybackPhase {
+        let time_sec = frame_index as f32 / self.fps as f32;
+        self.playback_state_at_time(time_sec)
+    }
+
+    #[allow(dead_code)]
+    pub fn progress_at_time(&self, time_sec: f32) -> f32 {
+        match self.playback_state_at_time(time_sec) {
+            PlaybackPhase::Solve(p) => p,
+            PlaybackPhase::Hold => 1.0,
+            PlaybackPhase::Rollback(p) => 1.0 - p,
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn progress_at_frame(&self, frame_index: u32) -> f32 {
         let time_sec = frame_index as f32 / self.fps as f32;
         self.progress_at_time(time_sec)

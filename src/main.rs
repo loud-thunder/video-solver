@@ -73,6 +73,11 @@ fn run_automated_verification() -> anyhow::Result<()> {
         sim.render_frame(1.0, &mut frame_buf);
         let status_1 = sim.status_label(1.0);
 
+        // Test roll-back state (progress = 0.0, 0.5, 1.0)
+        sim.render_rollback_frame(0.0, &mut frame_buf);
+        sim.render_rollback_frame(0.5, &mut frame_buf);
+        sim.render_rollback_frame(1.0, &mut frame_buf);
+
         println!(
             "  [{:02}/22] {:<30} | Steps: {:<4} | Status: {}",
             i + 1,
@@ -81,7 +86,7 @@ fn run_automated_verification() -> anyhow::Result<()> {
             status_1
         );
     }
-    println!("✓ All 22 puzzle simulations initialized and rendered successfully!");
+    println!("✓ All 22 puzzle simulations initialized and rendered successfully (including roll-back)!");
 
     // 3. Test video export to MP4 via ffmpeg
     let test_mp4 = PathBuf::from("target/test_output.mp4");
@@ -96,6 +101,7 @@ fn run_automated_verification() -> anyhow::Result<()> {
         easing: puzzle::EasingCurve::EaseInOut,
         complexity: 4,
         auto_scale_steps: false,
+        rollback: false,
         seed: 12345,
     };
 
@@ -120,6 +126,33 @@ fn run_automated_verification() -> anyhow::Result<()> {
     let metadata = std::fs::metadata(&test_mp4)?;
     assert!(metadata.len() > 1000, "MP4 file is too small ({} bytes)", metadata.len());
     println!("✓ MP4 exported successfully: {} (size: {} bytes)", test_mp4.display(), metadata.len());
+
+    // 3b. Test 3-Phase Roll-back video export
+    let test_rollback_mp4 = PathBuf::from("target/test_rollback.mp4");
+    let rollback_timing = TimingConfig {
+        total_duration_sec: 2.0,
+        hold_duration_sec: 0.2,
+        fps: 30,
+        easing: puzzle::EasingCurve::EaseInOut,
+        complexity: 4,
+        auto_scale_steps: false,
+        rollback: true,
+        seed: 12345,
+    };
+
+    println!("Step 3b: Exporting 2.0s 3-Phase Roll-back MP4 via ffmpeg...");
+    let rollback_config = ExportJobConfig {
+        output_path: test_rollback_mp4.clone(),
+        format: VideoFormat::Mp4H264,
+        width: 320,
+        height: 320,
+        timing: rollback_timing.clone(),
+        puzzle_kind: PuzzleKind::JigsawClassic,
+    };
+    let rollback_progress = ExportProgress::new(rollback_timing.total_frames());
+    export_video(&img, &rollback_config, rollback_progress)?;
+    assert!(test_rollback_mp4.exists(), "Rollback MP4 file was not created");
+    println!("✓ Roll-back MP4 exported successfully: {} (size: {} bytes)", test_rollback_mp4.display(), std::fs::metadata(&test_rollback_mp4)?.len());
 
     // 4. Test pure-Rust GIF export
     let test_gif = PathBuf::from("target/test_output.gif");
@@ -151,6 +184,7 @@ fn run_cli_export(args: &[String]) -> anyhow::Result<()> {
     let mut duration_sec = 5.0f32;
     let mut complexity = 5u32;
     let mut puzzle_index = 0usize;
+    let mut rollback = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -172,6 +206,9 @@ fn run_cli_export(args: &[String]) -> anyhow::Result<()> {
             "--complexity" => {
                 i += 1;
                 if i < args.len() { complexity = args[i].parse().unwrap_or(5); }
+            }
+            "--rollback" => {
+                rollback = true;
             }
             "--puzzle" => {
                 i += 1;
@@ -205,6 +242,7 @@ fn run_cli_export(args: &[String]) -> anyhow::Result<()> {
         hold_duration_sec: (duration_sec * 0.2).min(2.0),
         fps: 60,
         complexity,
+        rollback,
         ..Default::default()
     };
 

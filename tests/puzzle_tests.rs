@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use image::RgbaImage;
 
 #[path = "../src/puzzle/mod.rs"]
@@ -6,7 +8,7 @@ mod puzzle;
 use puzzle::drawing::SampleImageType;
 use puzzle::{
     format_duration_mmss, format_duration_mmss_sub, parse_duration_string, EasingCurve,
-    PuzzleCategory, PuzzleKind, TimingConfig,
+    PlaybackPhase, PuzzleCategory, PuzzleKind, TimingConfig,
 };
 
 #[test]
@@ -64,6 +66,7 @@ fn test_seven_minute_duration_rate() {
         easing: EasingCurve::Linear,
         complexity: 15,
         auto_scale_steps: true,
+        rollback: false,
         seed: 42,
     };
 
@@ -114,6 +117,7 @@ fn test_timing_duration_controls_solve_rate() {
         easing: EasingCurve::Linear,
         complexity: 5,
         auto_scale_steps: false,
+        rollback: false,
         seed: 42,
     };
     let fast_rate = fast_timing.solve_rate_steps_per_sec(steps);
@@ -127,6 +131,7 @@ fn test_timing_duration_controls_solve_rate() {
         easing: EasingCurve::Linear,
         complexity: 5,
         auto_scale_steps: false,
+        rollback: false,
         seed: 42,
     };
     let slow_rate = slow_timing.solve_rate_steps_per_sec(steps);
@@ -177,4 +182,116 @@ fn test_categories_coverage() {
     assert_eq!(transform_count, 5);
     assert_eq!(path_count, 5);
     assert_eq!(spatial_count + sort_count + transform_count + path_count, 22);
+}
+
+#[test]
+fn test_rollback_all_22_puzzles_seamless_loop() {
+    let img = SampleImageType::VibrantMandala.generate(96, 96);
+    let mut initial_solve_frame = RgbaImage::new(96, 96);
+    let mut end_rollback_frame = RgbaImage::new(96, 96);
+    let mut final_solve_frame = RgbaImage::new(96, 96);
+    let mut start_rollback_frame = RgbaImage::new(96, 96);
+    let mut mid_rollback_frame = RgbaImage::new(96, 96);
+
+    for kind in PuzzleKind::ALL {
+        let sim = kind.create_simulation(&img, 5, 42);
+
+        // 1. Initial scramble (Solve @ 0.0) vs Rollback end (Rollback @ 1.0)
+        sim.render_frame(0.0, &mut initial_solve_frame);
+        sim.render_rollback_frame(1.0, &mut end_rollback_frame);
+
+        // Verify pixel difference is zero or negligible (seamless loop to frame 0)
+        let diff_initial_end: u64 = initial_solve_frame
+            .pixels()
+            .zip(end_rollback_frame.pixels())
+            .map(|(p1, p2)| {
+                (p1[0] as i32 - p2[0] as i32).abs() as u64
+                    + (p1[1] as i32 - p2[1] as i32).abs() as u64
+                    + (p1[2] as i32 - p2[2] as i32).abs() as u64
+                    + (p1[3] as i32 - p2[3] as i32).abs() as u64
+            })
+            .sum();
+        let avg_diff_initial = diff_initial_end as f64 / (96 * 96 * 4) as f64;
+        assert!(
+            avg_diff_initial < 1.0,
+            "Puzzle {:?} rollback end (1.0) does not match initial scramble (0.0): avg channel diff {}",
+            kind,
+            avg_diff_initial
+        );
+
+        // 2. Solved frame (Solve @ 1.0) vs Rollback start (Rollback @ 0.0)
+        sim.render_frame(1.0, &mut final_solve_frame);
+        sim.render_rollback_frame(0.0, &mut start_rollback_frame);
+
+        let diff_solved_start: u64 = final_solve_frame
+            .pixels()
+            .zip(start_rollback_frame.pixels())
+            .map(|(p1, p2)| {
+                (p1[0] as i32 - p2[0] as i32).abs() as u64
+                    + (p1[1] as i32 - p2[1] as i32).abs() as u64
+                    + (p1[2] as i32 - p2[2] as i32).abs() as u64
+                    + (p1[3] as i32 - p2[3] as i32).abs() as u64
+            })
+            .sum();
+        let avg_diff_solved = diff_solved_start as f64 / (96 * 96 * 4) as f64;
+        assert!(
+            avg_diff_solved < 1.0,
+            "Puzzle {:?} rollback start (0.0) does not match solved frame (1.0): avg channel diff {}",
+            kind,
+            avg_diff_solved
+        );
+
+        // 3. Rollback mid progress renders cleanly without panic
+        sim.render_rollback_frame(0.5, &mut mid_rollback_frame);
+    }
+}
+
+#[test]
+fn test_3_phase_playback_timing() {
+    let timing = TimingConfig {
+        total_duration_sec: 10.0,
+        hold_duration_sec: 1.0,
+        fps: 10, // 100 total frames
+        easing: EasingCurve::Linear,
+        complexity: 5,
+        auto_scale_steps: false,
+        rollback: true,
+        seed: 42,
+    };
+
+    assert_eq!(timing.total_frames(), 100);
+
+    // Frame 0 to 44 should be Solve
+    match timing.playback_state_at_frame(0) {
+        PlaybackPhase::Solve(p) => assert_eq!(p, 0.0),
+        _ => panic!("Expected Solve at frame 0"),
+    }
+    match timing.playback_state_at_frame(22) {
+        PlaybackPhase::Solve(p) => assert!((p - 0.4888).abs() < 0.02),
+        _ => panic!("Expected Solve at frame 22"),
+    }
+
+    // Frame 45 to 54 should be Hold
+    match timing.playback_state_at_frame(45) {
+        PlaybackPhase::Hold => {}
+        _ => panic!("Expected Hold at frame 45"),
+    }
+    match timing.playback_state_at_frame(54) {
+        PlaybackPhase::Hold => {}
+        _ => panic!("Expected Hold at frame 54"),
+    }
+
+    // Frame 55 to 99 should be Rollback
+    match timing.playback_state_at_frame(55) {
+        PlaybackPhase::Rollback(p) => assert_eq!(p, 0.0),
+        _ => panic!("Expected Rollback at frame 55"),
+    }
+    match timing.playback_state_at_frame(99) {
+        PlaybackPhase::Rollback(p) => assert!((p - 0.9777).abs() < 0.02),
+        _ => panic!("Expected Rollback at frame 99"),
+    }
+    match timing.playback_state_at_time(10.0) {
+        PlaybackPhase::Rollback(p) => assert_eq!(p, 1.0),
+        _ => panic!("Expected Rollback at time 10.0"),
+    }
 }
